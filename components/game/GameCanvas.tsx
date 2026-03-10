@@ -10,20 +10,20 @@ type Props = {
   onNpcInteract: (npc: NpcSoul) => void
 }
 
-const NPC_POSITIONS: Record<string, { x: number; y: number }> = {
-  eleanor: { x: 220, y: 220 },
-  silas:   { x: 620, y: 200 },
-  maeve:   { x: 130, y: 430 },
-  caleb:   { x: 430, y: 130 },
-  ruth:    { x: 680, y: 410 },
+const NPC_POS: Record<string, { x: number; y: number }> = {
+  eleanor: { x: 260, y: 280 },
+  silas:   { x: 740, y: 260 },
+  maeve:   { x: 160, y: 520 },
+  caleb:   { x: 500, y: 160 },
+  ruth:    { x: 820, y: 490 },
 }
 
-const NPC_COLORS: Record<string, { body: number; hair: number; shirt: number }> = {
-  eleanor: { body: 0xffe0c0, hair: 0x8b4513, shirt: 0xe07070 },
-  silas:   { body: 0xd4a870, hair: 0x3d2b1f, shirt: 0x607090 },
-  maeve:   { body: 0xf0d8b0, hair: 0x1a0a2a, shirt: 0x5a3a7a },
-  caleb:   { body: 0xffd0a0, hair: 0x6b4a20, shirt: 0x4a7a5c },
-  ruth:    { body: 0xffe0c0, hair: 0x8b0000, shirt: 0x5a5a8a },
+const NPC_STYLE: Record<string, { body: number; hair: number; top: number; accent: number }> = {
+  eleanor: { body: 0xfde8cc, hair: 0x6b3515, top: 0xe07878, accent: 0xf4a58a },
+  silas:   { body: 0xd4a870, hair: 0x2a1a0a, top: 0x546a84, accent: 0x8aa4bc },
+  maeve:   { body: 0xf2e0c8, hair: 0x1a0a2e, top: 0x7a5090, accent: 0xb09ac8 },
+  caleb:   { body: 0xfcd8a8, hair: 0x7a5020, top: 0x4a8060, accent: 0x8cc0a0 },
+  ruth:    { body: 0xfde0cc, hair: 0x8b0808, top: 0x506088, accent: 0x90a8c8 },
 }
 
 export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
@@ -38,486 +38,557 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
 
       class TownScene extends Phaser.Scene {
         player!: Phaser.GameObjects.Container
-        playerSprites: Phaser.GameObjects.Image[] = []
-        npcContainers: Map<string, Phaser.GameObjects.Container> = new Map()
+        npcMap: Map<string, Phaser.GameObjects.Container> = new Map()
         cursors!: Phaser.Types.Input.Keyboard.CursorKeys
         wasd!: any
         eKey!: Phaser.Input.Keyboard.Key
         nearbyNpc: string | null = null
-        hintContainer!: Phaser.GameObjects.Container
-        moveDir = { x: 0, y: 0 }
-        facing = 'down'
-        walkFrame = 0
+        hint!: Phaser.GameObjects.Container
         walkTimer = 0
-        joystick = { active: false, x0: 0, y0: 0, cx: 0, cy: 0 }
+        walkFrame = 0
+        joystick = { on: false, x0: 0, y0: 0, cx: 0, cy: 0 }
         jBase!: Phaser.GameObjects.Arc
         jThumb!: Phaser.GameObjects.Arc
-        isMobile = window.innerWidth < 768
-        WORLD_W = 800
-        WORLD_H = 600
+        mobile = window.innerWidth < 768
+        WW = 1024
+        WH = 768
 
         constructor() { super({ key: 'TownScene' }) }
 
-        makeCharTex(key: string, bodyColor: number, hairColor: number, shirtColor: number, pantsColor: number, facing: string = 'down', frame: number = 0) {
+        // ── Texture generators ──────────────────────────────────────────
+
+        makePerson(key: string, bodyCol: number, hairCol: number, topCol: number, accentCol: number, walk = 0) {
+          const S = 4 // scale factor for crispness
+          const W = 14 * S, H = 22 * S
           const g = this.add.graphics()
-          const W = 20, H = 30
 
-          // Shadow
-          g.fillStyle(0x000000, 0.25)
-          g.fillEllipse(W/2, H + 2, W * 0.8, 5)
-
-          // Legs (animated)
-          g.fillStyle(pantsColor)
-          const legOff = frame === 1 ? 2 : frame === 3 ? -2 : 0
-          g.fillRect(W/2 - 6, H - 8, 5, 9 + legOff)
-          g.fillRect(W/2 + 1, H - 8, 5, 9 - legOff)
+          // Soft shadow
+          g.fillStyle(0x000000, 0.18)
+          g.fillEllipse(W / 2, H + S, W * 0.7, S * 2)
 
           // Shoes
-          g.fillStyle(0x2a1a0a)
-          g.fillRect(W/2 - 7, H + 1 + legOff, 6, 3)
-          g.fillRect(W/2 + 0, H + 1 - legOff, 6, 3)
+          g.fillStyle(0x2a1a0e)
+          const lx = W / 2 - 4 * S, rx = W / 2 + S
+          const lo = walk === 1 ? S : walk === 2 ? -S : 0
+          g.fillRoundedRect(lx, H - 4 * S + lo, 4 * S, 3 * S, S)
+          g.fillRoundedRect(rx, H - 4 * S - lo, 4 * S, 3 * S, S)
 
-          // Body/shirt
-          g.fillStyle(shirtColor)
-          g.fillRoundedRect(W/2 - 7, H - 18, 14, 11, 2)
+          // Pants
+          g.fillStyle(0x2a3550)
+          g.fillRoundedRect(lx, H - 9 * S + lo, 4 * S, 6 * S, S)
+          g.fillRoundedRect(rx, H - 9 * S - lo, 4 * S, 6 * S, S)
+
+          // Top/shirt
+          g.fillStyle(topCol)
+          g.fillRoundedRect(W / 2 - 5 * S, H - 16 * S, 10 * S, 8 * S, S)
+
+          // Collar accent
+          g.fillStyle(accentCol)
+          g.fillRoundedRect(W / 2 - 2 * S, H - 16 * S, 4 * S, 2 * S, S * 0.5)
 
           // Arms
-          g.fillStyle(shirtColor)
-          g.fillRect(W/2 - 11, H - 17, 4, 8)
-          g.fillRect(W/2 + 7, H - 17, 4, 8)
+          g.fillStyle(topCol)
+          g.fillRoundedRect(W / 2 - 8 * S, H - 15 * S, 3 * S, 6 * S, S)
+          g.fillRoundedRect(W / 2 + 5 * S, H - 15 * S, 3 * S, 6 * S, S)
 
-          // Skin hands
-          g.fillStyle(bodyColor)
-          g.fillCircle(W/2 - 9, H - 9, 2.5)
-          g.fillCircle(W/2 + 9, H - 9, 2.5)
+          // Hands
+          g.fillStyle(bodyCol)
+          g.fillCircle(W / 2 - 7 * S + S / 2, H - 9 * S, S * 1.5)
+          g.fillCircle(W / 2 + 6 * S + S / 2, H - 9 * S, S * 1.5)
 
           // Neck
-          g.fillStyle(bodyColor)
-          g.fillRect(W/2 - 2, H - 21, 4, 4)
+          g.fillStyle(bodyCol)
+          g.fillRect(W / 2 - S, H - 18 * S, 2 * S, 3 * S)
 
           // Head
-          g.fillStyle(bodyColor)
-          g.fillRoundedRect(W/2 - 6, H - 30, 12, 11, 3)
+          g.fillStyle(bodyCol)
+          g.fillRoundedRect(W / 2 - 4 * S, H - 22 * S, 8 * S, 7 * S, S * 1.5)
+
+          // Blush
+          g.fillStyle(0xffaaaa, 0.25)
+          g.fillCircle(W / 2 - 3 * S, H - 17 * S, S)
+          g.fillCircle(W / 2 + 3 * S, H - 17 * S, S)
 
           // Eyes
-          g.fillStyle(0x1a1a2a)
-          if (facing !== 'up') {
-            g.fillCircle(W/2 - 2, H - 22, 1.2)
-            g.fillCircle(W/2 + 2, H - 22, 1.2)
-          }
+          g.fillStyle(0x1a1a2e)
+          g.fillCircle(W / 2 - 2 * S, H - 19 * S, S * 0.8)
+          g.fillCircle(W / 2 + 2 * S, H - 19 * S, S * 0.8)
+
+          // Eye shine
+          g.fillStyle(0xffffff, 0.9)
+          g.fillCircle(W / 2 - 2 * S + S * 0.3, H - 19 * S - S * 0.3, S * 0.3)
+          g.fillCircle(W / 2 + 2 * S + S * 0.3, H - 19 * S - S * 0.3, S * 0.3)
 
           // Hair
-          g.fillStyle(hairColor)
-          g.fillRoundedRect(W/2 - 6, H - 30, 12, 5, { tl: 3, tr: 3, bl: 0, br: 0 })
-          if (facing !== 'up') g.fillRect(W/2 - 7, H - 27, 2, 5)
+          g.fillStyle(hairCol)
+          g.fillRoundedRect(W / 2 - 4 * S, H - 22 * S, 8 * S, 4 * S, { tl: S * 1.5, tr: S * 1.5, bl: 0, br: 0 })
+          g.fillRect(W / 2 - 5 * S, H - 20 * S, S, 3 * S)
+          g.fillRect(W / 2 + 4 * S, H - 20 * S, S, 2 * S)
 
-          g.generateTexture(key, W + 4, H + 6)
+          g.generateTexture(key, W + S, H + S * 2)
           g.destroy()
         }
 
-        buildingTex(key: string, w: number, h: number, wallColor: number, roofColor: number, label: string) {
+        makeBuilding(key: string, w: number, h: number, wallCol: number, roofCol: number, accent: number) {
           const g = this.add.graphics()
+          const S = 2
 
-          // Wall shadow
-          g.fillStyle(0x000000, 0.3)
-          g.fillRect(3, h / 2 + 3, w, h / 2)
+          // Drop shadow
+          g.fillStyle(0x000000, 0.2)
+          g.fillRoundedRect(S * 3, h / 2 + S * 3, w, h / 2 + S, S)
 
           // Wall
-          g.fillStyle(wallColor)
-          g.fillRect(0, h / 2, w, h / 2)
+          g.fillStyle(wallCol)
+          g.fillRoundedRect(0, h / 2, w, h / 2, { tl: 0, tr: 0, bl: S * 2, br: S * 2 })
 
-          // Wall outline
-          g.lineStyle(1.5, 0x000000, 0.5)
-          g.strokeRect(0, h / 2, w, h / 2)
+          // Wall shading (left side darker)
+          g.fillStyle(0x000000, 0.08)
+          g.fillRect(0, h / 2, w * 0.25, h / 2)
 
-          // Roof (triangle-ish using polygon)
-          g.fillStyle(roofColor)
-          g.fillTriangle(0, h / 2, w / 2, 0, w, h / 2)
-          g.lineStyle(1.5, 0x000000, 0.4)
-          g.strokeTriangle(0, h / 2, w / 2, 0, w, h / 2)
+          // Roof (pentagon shape)
+          const roofH = h * 0.55
+          g.fillStyle(roofCol)
+          g.fillTriangle(0, h / 2, w / 2, h / 2 - roofH, w, h / 2)
 
-          // Door
+          // Roof highlight
+          g.fillStyle(0xffffff, 0.08)
+          g.fillTriangle(w * 0.1, h / 2, w / 2, h / 2 - roofH, w * 0.5, h / 2)
+
+          // Roof ridge
+          g.lineStyle(S, accent, 0.4)
+          g.lineBetween(w / 2, h / 2 - roofH + S, w / 2, h / 2)
+
+          // Front door
           g.fillStyle(0x3d1f00)
-          const dw = w * 0.18, dh = h * 0.25
-          g.fillRoundedRect(w/2 - dw/2, h - dh, dw, dh, 2)
+          const dw = w * 0.2, dh = h * 0.24
+          g.fillRoundedRect(w / 2 - dw / 2, h - dh, dw, dh, S)
+          g.lineStyle(S, 0x1a0a00, 0.8)
+          g.strokeRoundedRect(w / 2 - dw / 2, h - dh, dw, dh, S)
 
-          // Windows
-          g.fillStyle(0xffd88a, 0.85)
-          g.fillRect(w * 0.15, h * 0.55, w * 0.18, h * 0.18)
-          g.fillRect(w * 0.67, h * 0.55, w * 0.18, h * 0.18)
+          // Door knob
+          g.fillStyle(0xc9a84c)
+          g.fillCircle(w / 2 + dw / 4, h - dh * 0.45, S * 1.5)
 
-          // Window frames
-          g.lineStyle(1, 0x000000, 0.6)
-          g.strokeRect(w * 0.15, h * 0.55, w * 0.18, h * 0.18)
-          g.strokeRect(w * 0.67, h * 0.55, w * 0.18, h * 0.18)
+          // Left window
+          this.drawWindow(g, w * 0.12, h * 0.56, w * 0.2, h * 0.2, S)
+          // Right window
+          this.drawWindow(g, w * 0.68, h * 0.56, w * 0.2, h * 0.2, S)
 
-          g.generateTexture(key, w + 4, h + 4)
+          // Outline
+          g.lineStyle(S * 0.5, 0x000000, 0.15)
+          g.strokeRoundedRect(0, h / 2, w, h / 2, { tl: 0, tr: 0, bl: S * 2, br: S * 2 })
+
+          g.generateTexture(key, w + S * 4, h + S * 4)
           g.destroy()
         }
 
-        treeTex(key: string) {
+        drawWindow(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, S: number) {
+          // Frame
+          g.fillStyle(0x5a4020)
+          g.fillRoundedRect(x - S, y - S, w + S * 2, h + S * 2, S)
+          // Glass (warm glow)
+          g.fillStyle(0xffd890, 0.85)
+          g.fillRoundedRect(x, y, w, h, S * 0.5)
+          // Cross pane
+          g.lineStyle(S * 0.75, 0x8a6030, 0.6)
+          g.lineBetween(x + w / 2, y, x + w / 2, y + h)
+          g.lineBetween(x, y + h / 2, x + w, y + h / 2)
+        }
+
+        makeTree(key: string) {
           const g = this.add.graphics()
+          const W = 60, H = 80
+
           // Shadow
-          g.fillStyle(0x000000, 0.2)
-          g.fillEllipse(16, 42, 20, 7)
+          g.fillStyle(0x000000, 0.15)
+          g.fillEllipse(W / 2, H - 6, 32, 10)
+
           // Trunk
-          g.fillStyle(0x5c3d1e)
-          g.fillRect(12, 28, 8, 16)
-          // Canopy layers
-          g.fillStyle(0x2d6a1a)
-          g.fillCircle(16, 22, 14)
-          g.fillStyle(0x3d8a25)
-          g.fillCircle(13, 18, 10)
-          g.fillCircle(19, 17, 10)
-          g.fillStyle(0x4da832)
-          g.fillCircle(16, 14, 8)
-          g.generateTexture(key, 32, 48)
+          g.fillStyle(0x7a5030)
+          g.fillRoundedRect(W / 2 - 5, H - 30, 10, 26, 3)
+          g.fillStyle(0x9a6a40, 0.5)
+          g.fillRect(W / 2, H - 30, 3, 26)
+
+          // Canopy layers (dark to light, bottom to top)
+          g.fillStyle(0x2a5e18)
+          g.fillCircle(W / 2, H - 38, 22)
+          g.fillStyle(0x388a22)
+          g.fillCircle(W / 2 - 6, H - 44, 16)
+          g.fillCircle(W / 2 + 6, H - 44, 16)
+          g.fillStyle(0x4aaa2e)
+          g.fillCircle(W / 2, H - 50, 16)
+          g.fillStyle(0x5ec038)
+          g.fillCircle(W / 2 - 3, H - 54, 10)
+          g.fillCircle(W / 2 + 3, H - 55, 9)
+          // Highlight
+          g.fillStyle(0x78d84e, 0.5)
+          g.fillCircle(W / 2 - 5, H - 57, 6)
+
+          g.generateTexture(key, W, H)
           g.destroy()
         }
 
-        waterTex(key: string, frame: number) {
+        makeGrassTile(key: string, variant: number) {
           const g = this.add.graphics()
-          g.fillStyle(0x1a6fa0)
-          g.fillRect(0, 0, 32, 32)
-          g.fillStyle(0x2a8fc0, 0.5)
-          const offset = (frame * 4) % 16
-          for (let i = 0; i < 3; i++) {
-            g.fillRect(offset + i * 12, 8, 8, 2)
-            g.fillRect(offset + i * 12 + 6, 20, 6, 2)
+          const colors = [0x5c9e3a, 0x60a83e, 0x58983a]
+          g.fillStyle(colors[variant % 3])
+          g.fillRect(0, 0, 64, 64)
+          // Subtle blade details
+          g.fillStyle(0x000000, 0.04)
+          for (let i = 0; i < 6; i++) {
+            g.fillRect(Math.random() * 60, Math.random() * 60, 2, 4)
           }
-          g.generateTexture(key, 32, 32)
+          g.fillStyle(0xffffff, 0.04)
+          for (let i = 0; i < 4; i++) {
+            g.fillCircle(Math.random() * 60, Math.random() * 60, 3)
+          }
+          g.generateTexture(key, 64, 64)
           g.destroy()
         }
 
-        grassTex() {
+        makePathTile() {
           const g = this.add.graphics()
-          g.fillStyle(0x3a6b28)
+          g.fillStyle(0xc4a86e)
+          g.fillRect(0, 0, 64, 64)
+          g.fillStyle(0xb49658, 0.5)
+          g.fillRect(8, 20, 6, 6); g.fillRect(32, 8, 8, 5); g.fillRect(50, 34, 7, 5)
+          g.fillStyle(0xd4b87e, 0.4)
+          g.fillRect(18, 42, 5, 5); g.fillRect(44, 12, 4, 4)
+          g.generateTexture('path', 64, 64)
+          g.destroy()
+        }
+
+        makeWater(key: string, frame: number) {
+          const g = this.add.graphics()
+          g.fillStyle(0x3a8ec4)
+          g.fillRect(0, 0, 64, 64)
+          g.fillStyle(0x5aaee0, 0.6)
+          g.fillRect(0, 0, 64, 64)
+          // Ripples
+          const offsets = [0, 8, 16]
+          const o = offsets[frame % 3]
+          g.fillStyle(0x80c8f0, 0.35)
+          for (let i = 0; i < 4; i++) {
+            g.fillRoundedRect((i * 18 + o) % 64, 10, 12, 3, 2)
+            g.fillRoundedRect((i * 16 + o + 5) % 64, 36, 10, 2, 1)
+            g.fillRoundedRect((i * 20 + o) % 64, 52, 8, 2, 1)
+          }
+          g.fillStyle(0xffffff, 0.08)
+          g.fillRoundedRect(10, 18, 20, 4, 2)
+          g.generateTexture(key, 64, 64)
+          g.destroy()
+        }
+
+        makeFlowers() {
+          const g = this.add.graphics()
+          g.fillStyle(0x5c9e3a)
           g.fillRect(0, 0, 32, 32)
-          g.fillStyle(0x2d5a1e, 0.4)
-          g.fillRect(4, 8, 3, 8); g.fillRect(16, 4, 3, 10); g.fillRect(24, 14, 3, 7)
-          g.fillStyle(0x4a7a35, 0.3)
-          g.fillRect(10, 18, 2, 6); g.fillRect(22, 6, 2, 5)
-          g.generateTexture('grass', 32, 32)
+          const flowers = [[6, 20], [16, 10], [24, 22]]
+          flowers.forEach(([fx, fy], i) => {
+            const petal = [0xffdd44, 0xff88aa, 0xaa88ff][i]
+            g.fillStyle(petal, 0.9)
+            for (let a = 0; a < 5; a++) {
+              const ra = (a / 5) * Math.PI * 2
+              g.fillCircle(fx + Math.cos(ra) * 3, fy + Math.sin(ra) * 3, 2.5)
+            }
+            g.fillStyle(0xffee88)
+            g.fillCircle(fx, fy, 2)
+          })
+          g.generateTexture('flowers', 32, 32)
           g.destroy()
         }
 
-        pathTex() {
+        makeFountain() {
           const g = this.add.graphics()
-          g.fillStyle(0x8a7055)
-          g.fillRect(0, 0, 32, 32)
-          g.fillStyle(0x7a6045, 0.5)
-          g.fillRect(5, 10, 4, 4); g.fillRect(18, 6, 3, 3); g.fillRect(24, 20, 5, 3)
-          g.fillStyle(0x9a8065, 0.3)
-          g.fillRect(2, 22, 3, 3); g.fillRect(14, 16, 4, 4)
-          g.generateTexture('path', 32, 32)
-          g.destroy()
-        }
-
-        flowerTex() {
-          const g = this.add.graphics()
-          g.fillStyle(0x3a6b28)
-          g.fillRect(0, 0, 16, 16)
-          g.fillStyle(0xffcc00)
-          g.fillCircle(4, 12, 2); g.fillCircle(12, 6, 2); g.fillCircle(8, 10, 1.5)
-          g.fillStyle(0xff6688)
-          g.fillCircle(6, 5, 2.5); g.fillCircle(13, 13, 2)
-          g.generateTexture('flower', 16, 16)
+          const W = 72, H = 60
+          // Basin
+          g.fillStyle(0x8ab0d0)
+          g.fillEllipse(W / 2, H * 0.7, W * 0.9, H * 0.4)
+          g.fillStyle(0x6898b8)
+          g.fillEllipse(W / 2, H * 0.7 + 4, W * 0.8, H * 0.3)
+          // Water
+          g.fillStyle(0x5aaee0, 0.8)
+          g.fillEllipse(W / 2, H * 0.7, W * 0.75, H * 0.28)
+          // Pillar
+          g.fillStyle(0xd4c8a8)
+          g.fillRect(W / 2 - 5, H * 0.2, 10, H * 0.5)
+          // Top bowl
+          g.fillStyle(0xc4b898)
+          g.fillEllipse(W / 2, H * 0.22, 30, 12)
+          // Water spray
+          g.fillStyle(0x90d0f0, 0.7)
+          g.fillCircle(W / 2, H * 0.1, 5)
+          g.fillStyle(0xb0e4ff, 0.4)
+          g.fillCircle(W / 2, H * 0.05, 3)
+          g.generateTexture('fountain', W, H)
           g.destroy()
         }
 
         preload() {}
 
         create() {
-          const W = this.WORLD_W, H = this.WORLD_H
+          const WW = this.WW, WH = this.WH
+          const TW = 64
 
-          // Generate textures
-          this.grassTex()
-          this.pathTex()
-          this.flowerTex()
-          this.waterTex('water0', 0)
-          this.waterTex('water1', 1)
-          this.waterTex('water2', 2)
-          this.treeTex('tree')
+          // Generate all textures
+          for (let i = 0; i < 3; i++) this.makeGrassTile(`grass${i}`, i)
+          this.makePathTile()
+          for (let i = 0; i < 3; i++) this.makeWater(`water${i}`, i)
+          this.makeFlowers()
+          this.makeFountain()
+          this.makeTree('tree')
 
-          // Buildings
-          this.buildingTex('bld_bakery', 100, 80, 0xd4a870, 0xa03030, 'Bakery')
-          this.buildingTex('bld_forge', 90, 75, 0x7a6050, 0x444444, 'Forge')
-          this.buildingTex('bld_cottage', 80, 70, 0x8a9a70, 0x4a6a30, 'Cottage')
-          this.buildingTex('bld_hall', 130, 85, 0xd4c090, 0x8a5020, 'Town Hall')
-          this.buildingTex('bld_library', 110, 78, 0x8090b0, 0x405080, 'Library')
+          this.makeBuilding('bld_bakery',  160, 130, 0xead4a0, 0xb04040, 0xc8a060)
+          this.makeBuilding('bld_forge',   150, 120, 0xb0a090, 0x505060, 0x808090)
+          this.makeBuilding('bld_cottage', 140, 118, 0xb8c8a0, 0x506840, 0x90a878)
+          this.makeBuilding('bld_hall',    200, 140, 0xe8dcb8, 0x905030, 0xc8a870)
+          this.makeBuilding('bld_library', 170, 128, 0xb8c0d4, 0x485878, 0x8898b8)
+          this.makeBuilding('bld_tavern',  150, 118, 0xd4b890, 0x884428, 0xb07848)
 
-          // Character textures (4 walk frames × 4 directions = more but simplified to down)
-          this.makeCharTex('player_idle', 0xffe0b2, 0x5a3a10, 0x3a5a8a, 0x2a3a6a, 'down', 0)
-          this.makeCharTex('player_walk1', 0xffe0b2, 0x5a3a10, 0x3a5a8a, 0x2a3a6a, 'down', 1)
-          this.makeCharTex('player_walk2', 0xffe0b2, 0x5a3a10, 0x3a5a8a, 0x2a3a6a, 'down', 3)
+          // Player
+          this.makePerson('p_idle', 0xffe0b0, 0x5a3a10, 0x3a5a8a, 0x7090c0, 0)
+          this.makePerson('p_w1',   0xffe0b0, 0x5a3a10, 0x3a5a8a, 0x7090c0, 1)
+          this.makePerson('p_w2',   0xffe0b0, 0x5a3a10, 0x3a5a8a, 0x7090c0, 2)
 
-          Object.entries(NPC_COLORS).forEach(([id, c]) => {
-            this.makeCharTex(`npc_${id}_idle`, c.body, c.hair, c.shirt, 0x2a3a5a, 'down', 0)
-            this.makeCharTex(`npc_${id}_walk1`, c.body, c.hair, c.shirt, 0x2a3a5a, 'down', 1)
+          // NPCs
+          npcs.forEach(npc => {
+            const s = NPC_STYLE[npc.id] || { body: 0xfde0cc, hair: 0x3d1f00, top: 0x808080, accent: 0xa0a0a0 }
+            this.makePerson(`npc_${npc.id}_i`, s.body, s.hair, s.top, s.accent, 0)
+            this.makePerson(`npc_${npc.id}_w`, s.body, s.hair, s.top, s.accent, 1)
           })
 
-          // ── Tile world ──
-          const TW = 32
-          const cols = Math.ceil(W / TW) + 1
-          const rows = Math.ceil(H / TW) + 1
-
-          // Grass base
+          // ── Tile map ──────────────────────────────────────
+          const cols = Math.ceil(WW / TW) + 1, rows = Math.ceil(WH / TW) + 1
+          const variants = ['grass0', 'grass0', 'grass0', 'grass1', 'grass2']
           for (let r = 0; r < rows; r++) {
             for (let c = 0; c < cols; c++) {
-              this.add.image(c * TW + TW/2, r * TW + TW/2, 'grass').setDisplaySize(TW, TW)
+              const key = variants[Math.floor(Math.abs(Math.sin(r * 7 + c * 13) * 10)) % variants.length]
+              this.add.image(c * TW, r * TW, key).setOrigin(0).setDisplaySize(TW, TW)
             }
           }
 
-          // Paths (cross shape through center)
-          const cx = W / 2, cy = H / 2
-          for (let c = 0; c < cols; c++) {
-            this.add.image(c * TW + TW/2, cy, 'path').setDisplaySize(TW, TW)
-          }
-          for (let r = 0; r < rows; r++) {
-            this.add.image(cx, r * TW + TW/2, 'path').setDisplaySize(TW, TW)
-          }
+          // Paths (horizontal + vertical through center)
+          const cx = WW / 2, cy = WH / 2
+          for (let c = 0; c < cols + 1; c++) this.add.image(c * TW, cy - 24, 'path').setOrigin(0).setDisplaySize(TW, 48)
+          for (let r = 0; r < rows + 1; r++) this.add.image(cx - 24, r * TW, 'path').setOrigin(0).setDisplaySize(48, TW)
 
-          // Flowers scattered
-          const flowerSpots = [[80,80],[160,350],[500,480],[680,120],[300,50],[720,300],[50,500]]
+          // Flower patches
+          const flowerSpots: number[][] = [[100, 100], [180, 420], [600, 540], [820, 150], [340, 60], [760, 400]]
           flowerSpots.forEach(([fx, fy]) => {
-            this.add.image(fx, fy, 'flower').setDisplaySize(16, 16)
+            this.add.image(fx, fy, 'flowers').setDisplaySize(48, 48)
           })
 
-          // Small pond (top right area)
-          for (let i = 0; i < 3; i++) {
-            for (let j = 0; j < 2; j++) {
-              this.add.image(650 + i * 32, 290 + j * 32, 'water0').setDisplaySize(32, 32)
-            }
+          // Fountain at center
+          const fountain = this.add.image(cx, cy, 'fountain').setDisplaySize(90, 76).setDepth(cy - 30)
+          this.tweens.add({ targets: fountain, alpha: { from: 0.92, to: 1 }, duration: 1200, yoyo: true, repeat: -1, ease: 'Sine.InOut' })
+
+          // Animated water tiles (pond top-right)
+          const waterImages: Phaser.GameObjects.Image[] = []
+          for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) {
+            const wi = this.add.image(750 + i * 54, 340 + j * 40, 'water0').setDisplaySize(54, 40)
+            waterImages.push(wi)
           }
+          let wf = 0
+          this.time.addEvent({ delay: 500, loop: true, callback: () => {
+            wf = (wf + 1) % 3
+            waterImages.forEach(wi => wi.setTexture(`water${wf}`))
+          }})
 
-          // Animated water
-          this.time.addEvent({
-            delay: 600, loop: true,
-            callback: () => {
-              this.walkFrame = (this.walkFrame + 1) % 3
-            }
-          })
-
-          // ── Buildings ──
-          const buildings = [
-            { key: 'bld_bakery',  x: 200, y: 160, w: 104, h: 84, label: "Eleanor's Bakery" },
-            { key: 'bld_forge',   x: 600, y: 175, w: 94,  h: 79, label: "Silas's Forge" },
-            { key: 'bld_cottage', x: 110, y: 410, w: 84,  h: 74, label: "Maeve's Cottage" },
-            { key: 'bld_hall',    x: 400, y: 110, w: 134, h: 89, label: "Town Hall" },
-            { key: 'bld_library', x: 670, y: 370, w: 114, h: 82, label: "Library" },
+          // ── Buildings ──────────────────────────────────────
+          const blds = [
+            { key: 'bld_bakery',  x: 240, y: 190, w: 168, h: 138, label: "Eleanor's Bakery" },
+            { key: 'bld_forge',   x: 750, y: 185, w: 158, h: 128, label: "Silas's Forge" },
+            { key: 'bld_cottage', x: 140, y: 490, w: 148, h: 126, label: "Maeve's Cottage" },
+            { key: 'bld_hall',    x: 510, y: 150, w: 208, h: 148, label: "Town Hall" },
+            { key: 'bld_library', x: 830, y: 460, w: 178, h: 136, label: "Library" },
+            { key: 'bld_tavern',  x: 490, y: 560, w: 158, h: 126, label: "Tavern" },
           ]
-
-          buildings.forEach(b => {
-            const img = this.add.image(b.x, b.y, b.key).setDisplaySize(b.w, b.h)
-            img.setDepth(b.y)
-            const lbl = this.add.text(b.x, b.y + b.h/2 - 2, b.label, {
-              fontSize: '8px', color: '#c9a84c', fontFamily: 'Inter, sans-serif',
-              stroke: '#000000', strokeThickness: 2,
-            }).setOrigin(0.5, 0).setDepth(b.y + 1)
+          blds.forEach(b => {
+            this.add.image(b.x, b.y, b.key).setDisplaySize(b.w, b.h).setDepth(b.y)
+            this.add.text(b.x, b.y + b.h / 2 + 2, b.label, {
+              fontSize: '10px', fontStyle: 'bold', color: '#f5f0e8',
+              stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
+            }).setOrigin(0.5, 0).setDepth(b.y + 1).setAlpha(0.85)
           })
 
-          // ── Trees ──
-          const treeSpots = [[55,55],[745,55],[55,540],[745,540],[55,280],[745,280],[370,480],[500,50]]
+          // ── Trees ──────────────────────────────────────────
+          const treeSpots: number[][] = [[60, 60], [960, 60], [60, 700], [960, 700], [60, 380], [960, 380], [400, 620], [580, 40], [200, 640], [840, 620]]
           treeSpots.forEach(([tx, ty]) => {
-            this.add.image(tx, ty, 'tree').setDisplaySize(36, 52).setDepth(ty + 26)
+            this.add.image(tx, ty, 'tree').setDisplaySize(60, 80).setDepth(ty + 40)
           })
 
-          // ── NPCs ──
+          // ── NPCs ──────────────────────────────────────────
           npcs.forEach(npc => {
-            const pos = NPC_POSITIONS[npc.id] || { x: 300, y: 300 }
-            const container = this.add.container(pos.x, pos.y)
-
-            const sprite = this.add.image(0, 0, `npc_${npc.id}_idle`).setDisplaySize(22, 32)
-            const nameTag = this.add.text(0, -28, npc.name, {
-              fontSize: '9px', color: '#f5f0e8', fontFamily: 'Inter, sans-serif',
-              fontStyle: 'bold', stroke: '#000000', strokeThickness: 3,
+            const pos = NPC_POS[npc.id] || { x: 400, y: 400 }
+            const spr = this.add.image(0, 0, `npc_${npc.id}_i`).setDisplaySize(40, 62)
+            const name = this.add.text(0, -40, npc.name, {
+              fontSize: '11px', fontStyle: 'bold', color: '#f5f0e8',
+              stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
             }).setOrigin(0.5)
-            const roleTag = this.add.text(0, -19, npc.role, {
-              fontSize: '7px', color: '#c9a84c', fontFamily: 'Inter, sans-serif',
-              stroke: '#000000', strokeThickness: 2,
+            const role = this.add.text(0, -28, npc.role, {
+              fontSize: '9px', color: '#c9a84c',
+              stroke: '#000000', strokeThickness: 2, fontFamily: 'Inter, sans-serif',
             }).setOrigin(0.5)
 
-            container.add([sprite, nameTag, roleTag])
-            container.setDepth(pos.y)
-            container.setSize(30, 50)
-            container.setInteractive()
-            container.on('pointerdown', () => onNpcInteract(npc))
-            container.setData('sprite', sprite)
-            container.setData('npcId', npc.id)
+            const c = this.add.container(pos.x, pos.y, [spr, name, role])
+            c.setDepth(pos.y); c.setSize(44, 66); c.setInteractive()
+            c.on('pointerdown', () => onNpcInteract(npc))
+            c.setData('spr', spr); c.setData('id', npc.id)
 
-            // Idle float
+            // Hover effect
+            c.on('pointerover', () => spr.setScale(1.08))
+            c.on('pointerout', () => spr.setScale(1))
+
+            // Subtle idle sway
             this.tweens.add({
-              targets: [nameTag, roleTag],
-              y: `+=3`,
-              duration: 1400 + Math.random() * 600,
-              yoyo: true, repeat: -1, ease: 'Sine.inOut',
-              delay: Math.random() * 1000,
+              targets: [name, role], y: `+=4`,
+              duration: 1600 + Math.random() * 600, yoyo: true, repeat: -1,
+              ease: 'Sine.InOut', delay: Math.random() * 1200,
             })
 
-            this.npcContainers.set(npc.id, container)
+            this.npcMap.set(npc.id, c)
           })
 
-          // ── Player ──
-          const sx = character.position?.x ?? W / 2
-          const sy = character.position?.y ?? H / 2
-          const pSprite = this.add.image(0, 0, 'player_idle').setDisplaySize(22, 32)
-          const pName = this.add.text(0, -28, character.name, {
-            fontSize: '9px', fontStyle: 'bold', color: '#e8c97a',
-            fontFamily: 'Inter, sans-serif', stroke: '#000000', strokeThickness: 3,
+          // ── Player ──────────────────────────────────────────
+          const sx = character.position?.x ?? WW / 2, sy = character.position?.y ?? WH / 2
+          const pSpr = this.add.image(0, 0, 'p_idle').setDisplaySize(40, 62)
+          const pName = this.add.text(0, -40, character.name, {
+            fontSize: '11px', fontStyle: 'bold', color: '#e8c97a',
+            stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
           }).setOrigin(0.5)
-
-          this.player = this.add.container(sx, sy, [pSprite, pName])
+          this.player = this.add.container(sx, sy, [pSpr, pName])
           this.player.setDepth(sy)
-          this.player.setData('sprite', pSprite)
-          this.playerSprites = [pSprite]
+          this.player.setData('spr', pSpr)
 
-          // ── Camera ──
-          this.cameras.main.setBounds(0, 0, W, H)
-          this.cameras.main.startFollow(this.player, true, 0.1, 0.1)
-          this.cameras.main.setZoom(this.isMobile ? 1.6 : 1.3)
+          // ── Camera ──────────────────────────────────────────
+          this.cameras.main.setBounds(0, 0, WW, WH)
+          this.cameras.main.startFollow(this.player, true, 0.09, 0.09)
+          this.cameras.main.setZoom(this.mobile ? 1.1 : 0.95)
 
-          // ── Vignette ──
-          const vign = this.add.graphics()
-          vign.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0.6, 0.6, 0, 0)
-          vign.fillRect(0, 0, W, H * 0.2)
-          vign.setScrollFactor(0).setDepth(9990)
+          // Soft vignette
+          const vign = this.add.graphics().setScrollFactor(0).setDepth(9990)
+          const { width: sw, height: sh } = this.scale
+          vign.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0.55, 0.55, 0, 0)
+          vign.fillRect(0, 0, sw, sh * 0.12)
+          const vign2 = this.add.graphics().setScrollFactor(0).setDepth(9990)
+          vign2.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0, 0, 0.4, 0.4)
+          vign2.fillRect(0, sh * 0.88, sw, sh * 0.12)
 
-          // ── Interaction hint ──
-          this.hintContainer = this.add.container(0, 0)
-          const hintBg = this.add.graphics()
-          hintBg.fillStyle(0x000000, 0.75)
-          hintBg.fillRoundedRect(-36, -10, 72, 20, 5)
-          hintBg.lineStyle(1, 0xc9a84c, 0.6)
-          hintBg.strokeRoundedRect(-36, -10, 72, 20, 5)
-          const hintText = this.add.text(0, 0, this.isMobile ? 'Tap to talk' : '[E] Talk', {
-            fontSize: '8px', color: '#c9a84c', fontFamily: 'Inter, sans-serif', fontStyle: 'bold',
+          // ── Interaction hint ──────────────────────────────────
+          this.hint = this.add.container(0, 0).setVisible(false).setDepth(9985)
+          const hBg = this.add.graphics()
+          hBg.fillStyle(0x111009, 0.85)
+          hBg.fillRoundedRect(-38, -13, 76, 26, 6)
+          hBg.lineStyle(1, 0xc9a84c, 0.7)
+          hBg.strokeRoundedRect(-38, -13, 76, 26, 6)
+          const hTxt = this.add.text(0, 0, this.mobile ? 'Tap to talk' : '[E] Talk', {
+            fontSize: '10px', fontStyle: 'bold', color: '#c9a84c', fontFamily: 'Inter, sans-serif',
           }).setOrigin(0.5)
-          this.hintContainer.add([hintBg, hintText])
-          this.hintContainer.setVisible(false).setDepth(9980)
+          this.hint.add([hBg, hTxt])
 
-          // ── Input ──
+          // ── Input ──────────────────────────────────────────
           this.cursors = this.input.keyboard!.createCursorKeys()
           this.wasd = this.input.keyboard!.addKeys({ up: 'W', down: 'S', left: 'A', right: 'D' })
           this.eKey = this.input.keyboard!.addKey('E')
 
-          // ── Mobile joystick ──
-          if (this.isMobile) {
-            const CH = this.scale.height
-            this.jBase = this.add.circle(70, CH - 90, 44, 0x000000, 0.45)
-              .setStrokeStyle(1.5, 0xc9a84c, 0.4).setScrollFactor(0).setDepth(9995)
-            this.jThumb = this.add.circle(70, CH - 90, 18, 0xc9a84c, 0.55)
+          // ── Mobile joystick ──────────────────────────────────
+          if (this.mobile) {
+            const { height: CH } = this.scale
+            this.jBase = this.add.circle(75, CH - 95, 48, 0x000000, 0.5)
+              .setStrokeStyle(2, 0xc9a84c, 0.4).setScrollFactor(0).setDepth(9995)
+            this.jThumb = this.add.circle(75, CH - 95, 22, 0xc9a84c, 0.6)
               .setScrollFactor(0).setDepth(9996)
 
             this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-              if (p.x < 160) {
-                this.joystick = { active: true, x0: p.x, y0: p.y, cx: p.x, cy: p.y }
-              }
+              if (p.x < 170) this.joystick = { on: true, x0: p.x, y0: p.y, cx: p.x, cy: p.y }
             })
             this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
-              if (this.joystick.active) { this.joystick.cx = p.x; this.joystick.cy = p.y }
+              if (this.joystick.on) { this.joystick.cx = p.x; this.joystick.cy = p.y }
             })
             this.input.on('pointerup', () => {
-              this.joystick.active = false
+              this.joystick.on = false
               const CH2 = this.scale.height
-              this.jThumb.setPosition(70, CH2 - 90)
-              this.moveDir = { x: 0, y: 0 }
+              this.jThumb?.setPosition(75, CH2 - 95)
             })
           }
         }
 
         update(_: number, delta: number) {
-          const spd = 140
+          // ── FIX: don't process keyboard when HTML input is focused ──
+          const active = document.activeElement
+          const typing = active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA'
+
           let vx = 0, vy = 0
+          const spd = 160
 
-          if (this.cursors.left.isDown || this.wasd.left.isDown) vx = -spd
-          else if (this.cursors.right.isDown || this.wasd.right.isDown) vx = spd
-          if (this.cursors.up.isDown || this.wasd.up.isDown) vy = -spd
-          else if (this.cursors.down.isDown || this.wasd.down.isDown) vy = spd
+          if (!typing) {
+            if (this.cursors.left.isDown  || this.wasd.left.isDown)  vx = -spd
+            else if (this.cursors.right.isDown || this.wasd.right.isDown) vx = spd
+            if (this.cursors.up.isDown    || this.wasd.up.isDown)    vy = -spd
+            else if (this.cursors.down.isDown  || this.wasd.down.isDown)  vy = spd
+          }
 
-          if (this.isMobile && this.joystick.active) {
+          if (this.mobile && this.joystick.on) {
             const dx = this.joystick.cx - this.joystick.x0
             const dy = this.joystick.cy - this.joystick.y0
             const dist = Math.sqrt(dx * dx + dy * dy)
-            const max = 36
-            const clamped = Math.min(dist, max)
+            const max = 38
             if (dist > 6) {
-              vx = (dx / dist) * spd * (clamped / max)
-              vy = (dy / dist) * spd * (clamped / max)
-              const CH = this.scale.height
-              this.jThumb.setPosition(70 + (dx / dist) * clamped, CH - 90 + (dy / dist) * clamped)
+              const cl = Math.min(dist, max)
+              vx = (dx / dist) * spd * (cl / max)
+              vy = (dy / dist) * spd * (cl / max)
+              this.jThumb?.setPosition(75 + (dx / dist) * cl, this.scale.height - 95 + (dy / dist) * cl)
             }
           }
 
           if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707 }
 
           const dt = delta / 1000
-          this.player.x = Phaser.Math.Clamp(this.player.x + vx * dt, 20, this.WORLD_W - 20)
-          this.player.y = Phaser.Math.Clamp(this.player.y + vy * dt, 20, this.WORLD_H - 20)
+          this.player.x = Phaser.Math.Clamp(this.player.x + vx * dt, 30, this.WW - 30)
+          this.player.y = Phaser.Math.Clamp(this.player.y + vy * dt, 30, this.WH - 30)
           this.player.setDepth(this.player.y)
 
           // Walk animation
           const moving = vx !== 0 || vy !== 0
+          const spr = this.player.getData('spr') as Phaser.GameObjects.Image
           if (moving) {
             this.walkTimer += delta
-            if (this.walkTimer > 200) {
-              this.walkTimer = 0
-              this.walkFrame = this.walkFrame === 1 ? 2 : 1
-            }
-            const sprite = this.player.getData('sprite') as Phaser.GameObjects.Image
-            sprite.setTexture(this.walkFrame === 1 ? 'player_walk1' : 'player_walk2')
+            if (this.walkTimer > 220) { this.walkTimer = 0; this.walkFrame = this.walkFrame === 1 ? 2 : 1 }
+            spr.setTexture(this.walkFrame === 1 ? 'p_w1' : 'p_w2')
           } else {
-            const sprite = this.player.getData('sprite') as Phaser.GameObjects.Image
-            sprite.setTexture('player_idle')
-            this.walkTimer = 0
+            spr.setTexture('p_idle'); this.walkTimer = 0
           }
-
-          // NPC walk animation
-          this.npcContainers.forEach((container) => {
-            const sprite = container.getData('sprite') as Phaser.GameObjects.Image
-            const id = container.getData('npcId') as string
-            if (moving && Math.random() < 0.002) {
-              sprite.setTexture(`npc_${id}_walk1`)
-              this.time.delayedCall(200, () => sprite.setTexture(`npc_${id}_idle`))
-            }
-          })
 
           // NPC proximity
-          let closestId: string | null = null
-          let closestDist = 75
-
-          this.npcContainers.forEach((c, id) => {
-            const dx = c.x - this.player.x
-            const dy = c.y - this.player.y
-            const dist = Math.sqrt(dx * dx + dy * dy)
-            if (dist < closestDist) { closestDist = dist; closestId = id }
+          let closest: string | null = null, minD = 90
+          this.npcMap.forEach((c, id) => {
+            const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, c.x, c.y)
+            if (d < minD) { minD = d; closest = id }
           })
-
-          this.nearbyNpc = closestId
-          if (closestId) {
-            const c = this.npcContainers.get(closestId)!
-            this.hintContainer.setPosition(c.x, c.y - 48).setVisible(true)
+          this.nearbyNpc = closest
+          if (closest) {
+            const c = this.npcMap.get(closest)!
+            this.hint.setPosition(c.x, c.y - 60).setVisible(true)
           } else {
-            this.hintContainer.setVisible(false)
+            this.hint.setVisible(false)
           }
 
-          if (Phaser.Input.Keyboard.JustDown(this.eKey) && this.nearbyNpc) {
+          if (!typing && Phaser.Input.Keyboard.JustDown(this.eKey) && this.nearbyNpc) {
             const npc = npcs.find(n => n.id === this.nearbyNpc)
             if (npc) onNpcInteract(npc)
           }
         }
       }
 
-      const w = window.innerWidth
-      const h = window.innerHeight
-
       const game = new Phaser.Game({
         type: Phaser.AUTO,
-        width: w, height: h,
-        backgroundColor: '#3a6b28',
+        width: window.innerWidth,
+        height: window.innerHeight,
+        backgroundColor: '#5c9e3a',
         parent: containerRef.current!,
         scene: [TownScene],
         scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-        render: { pixelArt: false, antialias: true },
+        render: { antialias: true, pixelArt: false, roundPixels: false },
       })
 
       gameRef.current = game
