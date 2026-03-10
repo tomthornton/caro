@@ -1,5 +1,5 @@
+import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
 import { NPCS } from '@/lib/npcs'
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ npcId: string }> }) {
@@ -7,7 +7,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ npc
   const npc = NPCS[npcId]
   if (!npc) return NextResponse.json({ error: 'NPC not found' }, { status: 404 })
 
-  const { messages, characterName, characterStats, memoryContext } = await req.json()
+  const { messages, characterName, memoryContext } = await req.json()
 
   const systemPrompt = `${npc.systemPrompt}
 
@@ -16,21 +16,21 @@ ${memoryContext ? `What you remember about this person from past conversations: 
 The player's name is ${characterName}.`
 
   try {
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        ...messages.slice(-10), // last 10 messages for context
-      ],
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+    const response = await client.messages.create({
+      model: 'claude-haiku-4-5',
       max_tokens: 200,
-      temperature: 0.85,
+      system: systemPrompt,
+      messages: messages.slice(-10).map((m: { role: string; content: string }) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      })),
     })
 
-    const reply = response.choices[0].message.content
+    const reply = response.content[0].type === 'text' ? response.content[0].text : ''
     return NextResponse.json({ reply })
   } catch {
-    // Fallback if no API key
     const fallbacks: Record<string, string> = {
       eleanor: `Oh honey, you've just arrived! Welcome to Caro. I'm Eleanor — I run the bakery right over there. You must be tired from your travels. Can I get you something?`,
       silas: `${characterName}. You're new. Silas. The forge is mine. Need something made, come back when you're settled.`,
