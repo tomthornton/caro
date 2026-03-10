@@ -1,50 +1,42 @@
+'use client'
 export const dynamic = 'force-dynamic'
 
-'use client'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase, Game } from '@/lib/supabase'
-
 export default function Dashboard() {
   const router = useRouter()
   const [games, setGames] = useState<Game[]>([])
   const [username, setUsername] = useState('')
   const [loading, setLoading] = useState(true)
-
   useEffect(() => {
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/'); return }
-
       const [{ data: profile }, { data: gamesData }] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', session.user.id).single(),
         supabase.from('games').select('*').eq('user_id', session.user.id).order('last_played_at', { ascending: false }),
       ])
-
       if (profile) setUsername(profile.username)
       if (gamesData) setGames(gamesData)
       setLoading(false)
     }
     load()
   }, [router])
-
   const logout = async () => {
     await supabase.auth.signOut()
     router.push('/')
   }
-
   const formatDate = (iso: string) => {
     const d = new Date(iso)
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
-
   if (loading) return (
     <div className="min-h-screen bg-bg flex items-center justify-center">
       <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin" />
     </div>
   )
-
   return (
     <div className="min-h-screen bg-bg px-6 py-10 max-w-lg mx-auto">
       {/* Header */}
@@ -57,7 +49,6 @@ export default function Dashboard() {
           Sign out
         </button>
       </div>
-
       {/* Games list */}
       {games.length === 0 ? (
         <div className="text-center py-20">
@@ -86,7 +77,6 @@ export default function Dashboard() {
           ))}
         </div>
       )}
-
       {/* New game */}
       <button onClick={() => router.push('/game/new')}
         className="w-full py-4 rounded-xl font-ui font-semibold text-bg text-sm tracking-wide transition-all active:scale-[0.98]"

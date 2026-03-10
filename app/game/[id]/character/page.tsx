@@ -1,18 +1,15 @@
+'use client'
 export const dynamic = 'force-dynamic'
 
-'use client'
 
 import { useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { ARCHETYPES, STAT_META, Archetype } from '@/lib/stats'
-
 type StatKey = 'strength' | 'intellect' | 'charisma' | 'cooking' | 'crafting' | 'wisdom'
-
 export default function CreateCharacter() {
   const router = useRouter()
   const { id: gameId } = useParams<{ id: string }>()
-
   const [step, setStep] = useState<'archetype' | 'details'>('archetype')
   const [selected, setSelected] = useState<Archetype>(ARCHETYPES[0])
   const [charName, setCharName] = useState('')
@@ -21,9 +18,7 @@ export default function CreateCharacter() {
   })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-
   const pointsLeft = selected.bonusPoints - Object.values(bonusStats).reduce((a, b) => a + b, 0)
-
   const adjustStat = (stat: StatKey, delta: number) => {
     const current = bonusStats[stat]
     const newVal = current + delta
@@ -31,19 +26,15 @@ export default function CreateCharacter() {
     if (delta > 0 && pointsLeft <= 0) return
     setBonusStats(prev => ({ ...prev, [stat]: newVal }))
   }
-
   const finalStats = (Object.keys(STAT_META) as StatKey[]).reduce((acc, key) => ({
     ...acc,
     [key]: selected.baseStats[key] + bonusStats[key],
   }), {} as Record<StatKey, number>)
-
   const create = async () => {
     if (!charName.trim()) { setError('Name your character.'); return }
     setLoading(true); setError('')
-
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) { router.push('/'); return }
-
     const { error: err } = await supabase.from('characters').insert({
       game_id: gameId,
       user_id: session.user.id,
@@ -54,25 +45,21 @@ export default function CreateCharacter() {
       energy: 100,
       gold: 50,
     })
-
     if (err) { setError(err.message); setLoading(false); return }
     router.push(`/game/${gameId}`)
   }
-
   return (
     <div className="min-h-screen bg-bg px-6 py-10 max-w-lg mx-auto flex flex-col">
       <button onClick={() => step === 'details' ? setStep('archetype') : router.push('/dashboard')}
         className="text-xs font-ui text-parchment/30 mb-8 text-left">
         ← Back
       </button>
-
       {step === 'archetype' && (
         <>
           <div className="mb-8">
             <h1 className="font-display text-3xl font-black text-gold tracking-wide mb-2">Who Are You?</h1>
             <p className="font-body text-parchment/50 italic">Choose your archetype. You can still customize your stats.</p>
           </div>
-
           <div className="space-y-3 mb-8">
             {ARCHETYPES.map(arch => (
               <button key={arch.id} onClick={() => {
@@ -99,7 +86,6 @@ export default function CreateCharacter() {
               </button>
             ))}
           </div>
-
           <button onClick={() => setStep('details')}
             className="w-full py-4 rounded-xl font-ui font-semibold text-bg text-sm tracking-wide mt-auto"
             style={{ background: 'linear-gradient(135deg, #c9a84c, #e8c97a)', boxShadow: '0 0 25px rgba(201,168,76,0.2)' }}>
@@ -107,14 +93,12 @@ export default function CreateCharacter() {
           </button>
         </>
       )}
-
       {step === 'details' && (
         <>
           <div className="mb-6">
             <h1 className="font-display text-3xl font-black text-gold tracking-wide mb-1">Shape Your Story</h1>
             <p className="font-body text-parchment/50 italic">{selected.emoji} {selected.name}</p>
           </div>
-
           {/* Name */}
           <div className="mb-6">
             <label className="block text-xs font-ui text-gold/60 uppercase tracking-widest mb-2">Character Name</label>
@@ -122,7 +106,6 @@ export default function CreateCharacter() {
               placeholder="What's your name?"
               className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-sm font-ui text-parchment placeholder:text-parchment/20 focus:outline-none focus:border-gold/50" />
           </div>
-
           {/* Stats */}
           <div className="mb-6">
             <div className="flex items-center justify-between mb-3">
@@ -162,9 +145,7 @@ export default function CreateCharacter() {
               })}
             </div>
           </div>
-
           {error && <p className="text-red-400 text-xs font-ui text-center mb-4">{error}</p>}
-
           <button onClick={create} disabled={loading || pointsLeft !== 0}
             className="w-full py-4 rounded-xl font-ui font-semibold text-bg text-sm tracking-wide disabled:opacity-40 mt-auto"
             style={{ background: 'linear-gradient(135deg, #c9a84c, #e8c97a)', boxShadow: '0 0 25px rgba(201,168,76,0.2)' }}>
