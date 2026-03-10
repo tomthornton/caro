@@ -16,19 +16,24 @@ export default function GamePage() {
   const { id: gameId } = useParams<{ id: string }>()
   const [game, setGame] = useState<Game | null>(null)
   const [character, setCharacter] = useState<Character | null>(null)
+  const [userId, setUserId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [chatNpc, setChatNpc] = useState<NpcSoul | null>(null)
   const [messages, setMessages] = useState<Msg[]>([])
+  const [trust, setTrust] = useState(0)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const messagesRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const chatNpcRef = useRef<NpcSoul | null>(null)
+  const messagesAtOpenRef = useRef<number>(0)
 
   useEffect(() => {
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/'); return }
+      setUserId(session.user.id)
       const [{ data: g }, { data: c }] = await Promise.all([
         supabase.from('games').select('*').eq('id', gameId).single(),
         supabase.from('characters').select('*').eq('game_id', gameId).eq('user_id', session.user.id).single(),
@@ -48,33 +53,63 @@ export default function GamePage() {
 
   const openChat = async (npc: NpcSoul) => {
     setChatNpc(npc)
+    chatNpcRef.current = npc
     setSending(true)
+
+    // Load existing chat
     const { data } = await supabase.from('chat_logs').select('messages')
       .eq('game_id', gameId).eq('npc_id', npc.id).single()
 
+    let initialMessages: Msg[] = []
+
     if (data?.messages?.length) {
-      setMessages(data.messages)
+      initialMessages = data.messages
+      setMessages(initialMessages)
       setSending(false)
     } else {
+      // First meeting — get opening line
       const res = await fetch(`/api/npc/${npc.id}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [], characterName: character?.name, characterStats: character?.stats }),
+        body: JSON.stringify({
+          messages: [], characterName: character?.name,
+          gameId, userId, gameDay: game?.day,
+        }),
       })
-      const { reply } = await res.json()
-      const init: Msg[] = [{ role: 'assistant', content: reply }]
-      setMessages(init)
-      await saveChat(npc.id, init)
+      const json = await res.json()
+      setTrust(json.trust ?? 0)
+      initialMessages = [{ role: 'assistant', content: json.reply }]
+      setMessages(initialMessages)
+      await saveChat(npc.id, initialMessages)
       setSending(false)
     }
+
+    messagesAtOpenRef.current = initialMessages.length
     setTimeout(() => inputRef.current?.focus(), 300)
   }
 
-  const closeChat = () => { setChatNpc(null); setMessages([]); setInput('') }
+  const closeChat = async () => {
+    const npc = chatNpcRef.current
+    const currentMessages = messages
+    setChatNpc(null)
+    chatNpcRef.current = null
+    setMessages([])
+    setInput('')
+
+    // Save relationship state if conversation had new messages
+    if (npc && currentMessages.length > messagesAtOpenRef.current && userId) {
+      await fetch(`/api/npc/${npc.id}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: currentMessages, characterName: character?.name,
+          gameId, userId, gameDay: game?.day, isClosing: true,
+        }),
+      })
+    }
+  }
 
   const saveChat = async (npcId: string, msgs: Msg[]) => {
-    const { data: { session } } = await supabase.auth.getSession()
     await supabase.from('chat_logs').upsert({
-      game_id: gameId, npc_id: npcId, user_id: session?.user.id, messages: msgs,
+      game_id: gameId, npc_id: npcId, user_id: userId, messages: msgs,
     }, { onConflict: 'game_id,npc_id,user_id' })
   }
 
@@ -83,12 +118,17 @@ export default function GamePage() {
     const userMsg: Msg = { role: 'user', content: input.trim() }
     const next = [...messages, userMsg]
     setMessages(next); setInput(''); setSending(true)
+
     const res = await fetch(`/api/npc/${chatNpc.id}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages: next, characterName: character?.name, characterStats: character?.stats }),
+      body: JSON.stringify({
+        messages: next, characterName: character?.name,
+        gameId, userId, gameDay: game?.day,
+      }),
     })
-    const { reply } = await res.json()
-    const final: Msg[] = [...next, { role: 'assistant', content: reply }]
+    const json = await res.json()
+    if (json.trust !== undefined) setTrust(json.trust)
+    const final: Msg[] = [...next, { role: 'assistant', content: json.reply }]
     setMessages(final)
     await saveChat(chatNpc.id, final)
     setSending(false)
@@ -97,6 +137,18 @@ export default function GamePage() {
   const STAT_LABELS: Record<string, string> = {
     strength: '💪', intellect: '🧠', charisma: '✨',
     cooking: '🍳', crafting: '⚒️', wisdom: '🕯️', reputation: '⭐',
+  }
+
+  function TrustBar({ value }: { value: number }) {
+    const label = value < 10 ? 'Stranger' : value < 30 ? 'Acquaintance' : value < 55 ? 'Warming up' : value < 75 ? 'Trusted' : value < 90 ? 'Friend' : 'Confidant'
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+        <span style={{ fontSize: 10, color: 'rgba(201,168,76,0.6)', width: 76, flexShrink: 0 }}>{label}</span>
+        <div style={{ flex: 1, height: 3, borderRadius: 99, background: 'rgba(255,255,255,0.08)' }}>
+          <div style={{ height: '100%', borderRadius: 99, background: 'linear-gradient(90deg, #c9a84c, #dfc06a)', width: `${value}%`, transition: 'width 0.6s ease' }} />
+        </div>
+      </div>
+    )
   }
 
   if (loading) return (
@@ -108,14 +160,11 @@ export default function GamePage() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0a0908', overflow: 'hidden' }}>
-
-      {/* Game canvas */}
       {character && (
         <GameCanvas character={character} npcs={NPC_LIST} onNpcInteract={openChat} />
       )}
 
       {/* ── HUD ── */}
-      {/* Top bar */}
       <div style={{
         position: 'absolute', top: 0, left: 0, right: 0,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
@@ -124,9 +173,7 @@ export default function GamePage() {
         pointerEvents: 'none',
       }}>
         <div style={{ pointerEvents: 'auto' }}>
-          <span style={{ fontFamily: 'Cinzel, serif', fontWeight: 900, fontSize: 18, color: '#c9a84c', letterSpacing: '0.08em' }}>
-            {game?.name}
-          </span>
+          <span style={{ fontFamily: 'Cinzel, serif', fontWeight: 900, fontSize: 18, color: '#c9a84c', letterSpacing: '0.08em' }}>{game?.name}</span>
           <span style={{ fontSize: 11, color: 'rgba(245,240,232,0.4)', marginLeft: 10, fontWeight: 500 }}>Day {game?.day}</span>
         </div>
         <div style={{ display: 'flex', gap: 8, pointerEvents: 'auto' }}>
@@ -136,7 +183,6 @@ export default function GamePage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 99, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.2)', fontSize: 12, color: 'rgba(245,240,232,0.7)', fontWeight: 600 }}>
             🪙 {character?.gold}
           </div>
-          {/* Menu button */}
           <button onClick={() => setMenuOpen(true)}
             style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.25)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 4 }}>
             <div style={{ width: 14, height: 1.5, background: '#c9a84c', borderRadius: 99 }} />
@@ -146,11 +192,10 @@ export default function GamePage() {
         </div>
       </div>
 
-      {/* Move hint bottom center */}
       {!chatNpc && (
         <div style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none' }}>
           <div style={{ fontSize: 11, color: 'rgba(245,240,232,0.3)', background: 'rgba(0,0,0,0.5)', padding: '6px 14px', borderRadius: 99, whiteSpace: 'nowrap', fontWeight: 500 }}>
-            WASD or joystick · Walk up to villagers to talk
+            WASD · Walk up to villagers to talk
           </div>
         </div>
       )}
@@ -160,14 +205,11 @@ export default function GamePage() {
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}
           onClick={() => setMenuOpen(false)}>
           <div onClick={e => e.stopPropagation()}
-            style={{ width: 280, background: '#111009', borderLeft: '1px solid #2e2a22', height: '100%', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 0 }}>
-
+            style={{ width: 280, background: '#111009', borderLeft: '1px solid #2e2a22', height: '100%', padding: '24px 20px', display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
               <span style={{ fontFamily: 'Cinzel, serif', fontSize: 16, fontWeight: 900, color: '#c9a84c', letterSpacing: '0.08em' }}>MENU</span>
               <button onClick={() => setMenuOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(245,240,232,0.4)', fontSize: 20, lineHeight: 1 }}>✕</button>
             </div>
-
-            {/* Character card */}
             <div style={{ background: '#1a1814', border: '1px solid #2e2a22', borderRadius: 14, padding: '16px', marginBottom: 20 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#f5f0e8', marginBottom: 2 }}>{character?.name}</div>
               <div style={{ fontSize: 11, color: '#c9a84c', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>{character?.archetype}</div>
@@ -187,7 +229,6 @@ export default function GamePage() {
                 ))}
               </div>
             </div>
-
             <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <button onClick={() => setMenuOpen(false)}
                 style={{ width: '100%', padding: '13px 0', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'rgba(201,168,76,0.1)', color: '#c9a84c', fontWeight: 600, fontSize: 14 }}>
@@ -205,46 +246,42 @@ export default function GamePage() {
       {/* ── CHAT MODAL ── */}
       {chatNpc && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 500, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
-          {/* Backdrop — tap to close */}
           <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={closeChat} />
-
-          {/* Panel */}
           <div style={{
-            position: 'relative', zIndex: 1,
-            background: '#111009',
-            borderTop: '1px solid #2e2a22',
-            borderRadius: '20px 20px 0 0',
-            display: 'flex', flexDirection: 'column',
-            maxHeight: '65vh', minHeight: 340,
+            position: 'relative', zIndex: 1, background: '#111009',
+            borderTop: '1px solid #2e2a22', borderRadius: '20px 20px 0 0',
+            display: 'flex', flexDirection: 'column', maxHeight: '65vh', minHeight: 340,
           }}>
-            {/* Drag handle */}
             <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 0' }}>
               <div style={{ width: 36, height: 4, borderRadius: 99, background: 'rgba(255,255,255,0.12)' }} />
             </div>
 
             {/* NPC header */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px 14px', borderBottom: '1px solid #2e2a22', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px 10px', borderBottom: '1px solid #2e2a22', flexShrink: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
                   {chatNpc.emoji}
                 </div>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 15, color: '#f5f0e8' }}>{chatNpc.name}</div>
-                  <div style={{ fontSize: 11, color: '#c9a84c', fontWeight: 500 }}>{chatNpc.role}</div>
+                  <div style={{ fontSize: 11, color: '#c9a84c', fontWeight: 500, marginBottom: 3 }}>{chatNpc.role}</div>
+                  <TrustBar value={trust} />
                 </div>
               </div>
               <button onClick={closeChat} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(245,240,232,0.3)', fontSize: 22, lineHeight: 1, padding: '4px 8px' }}>✕</button>
             </div>
 
-            {/* Messages — scrollable */}
+            {/* Messages */}
             <div ref={messagesRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 10 }}>
               {messages.map((m, i) => (
                 <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                   <div style={{
-                    maxWidth: '80%', padding: '10px 14px', borderRadius: m.role === 'user' ? '16px 4px 16px 16px' : '4px 16px 16px 16px',
+                    maxWidth: '80%', padding: '10px 14px',
+                    borderRadius: m.role === 'user' ? '16px 4px 16px 16px' : '4px 16px 16px 16px',
                     background: m.role === 'user' ? 'rgba(201,168,76,0.15)' : '#1a1814',
                     border: `1px solid ${m.role === 'user' ? 'rgba(201,168,76,0.3)' : '#2e2a22'}`,
-                    fontSize: 14, lineHeight: 1.55, color: m.role === 'user' ? '#f5f0e8' : 'rgba(245,240,232,0.9)',
+                    fontSize: 14, lineHeight: 1.55,
+                    color: m.role === 'user' ? '#f5f0e8' : 'rgba(245,240,232,0.9)',
                   }}>
                     {m.content}
                   </div>
@@ -253,7 +290,7 @@ export default function GamePage() {
               {sending && (
                 <div style={{ display: 'flex' }}>
                   <div style={{ padding: '10px 16px', borderRadius: '4px 16px 16px 16px', background: '#1a1814', border: '1px solid #2e2a22', display: 'flex', gap: 5, alignItems: 'center' }}>
-                    {[0,1,2].map(i => (
+                    {[0, 1, 2].map(i => (
                       <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: '#c9a84c', opacity: 0.6, animation: 'bounce 1.2s infinite', animationDelay: `${i * 0.2}s` }} />
                     ))}
                   </div>
@@ -261,7 +298,7 @@ export default function GamePage() {
               )}
             </div>
 
-            {/* Input — always visible */}
+            {/* Input */}
             <div style={{ padding: '10px 14px 20px', display: 'flex', gap: 10, borderTop: '1px solid #1a1814', flexShrink: 0 }}>
               <input
                 ref={inputRef}
@@ -269,14 +306,12 @@ export default function GamePage() {
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') send() }}
                 placeholder={`Talk to ${chatNpc.name}...`}
-                style={{
-                  flex: 1, background: '#1a1814', border: '1px solid #2e2a22', borderRadius: 12,
-                  padding: '12px 14px', fontSize: 14, color: '#f5f0e8', outline: 'none',
-                }}
+                style={{ flex: 1, background: '#1a1814', border: '1px solid #2e2a22', borderRadius: 12, padding: '12px 14px', fontSize: 14, color: '#f5f0e8', outline: 'none' }}
               />
               <button onClick={send} disabled={!input.trim() || sending}
                 style={{
-                  width: 44, height: 44, borderRadius: 12, border: 'none', cursor: input.trim() && !sending ? 'pointer' : 'default',
+                  width: 44, height: 44, borderRadius: 12, border: 'none',
+                  cursor: input.trim() && !sending ? 'pointer' : 'default',
                   background: input.trim() && !sending ? 'linear-gradient(135deg, #c9a84c, #dfc06a)' : 'rgba(201,168,76,0.2)',
                   color: input.trim() && !sending ? '#1a1408' : 'rgba(201,168,76,0.4)',
                   fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -289,10 +324,8 @@ export default function GamePage() {
       )}
 
       <style>{`
-        @keyframes bounce {
-          0%, 80%, 100% { transform: scale(0.8); opacity: 0.4; }
-          40% { transform: scale(1.2); opacity: 1; }
-        }
+        @keyframes bounce { 0%,80%,100%{transform:scale(0.8);opacity:0.4} 40%{transform:scale(1.2);opacity:1} }
+        @keyframes spin { to{transform:rotate(360deg)} }
       `}</style>
     </div>
   )
