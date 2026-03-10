@@ -1,158 +1,189 @@
 'use client'
 export const dynamic = 'force-dynamic'
 
-
 import { useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { ARCHETYPES, STAT_META, Archetype } from '@/lib/stats'
+
 type StatKey = 'strength' | 'intellect' | 'charisma' | 'cooking' | 'crafting' | 'wisdom'
+const STAT_KEYS = Object.keys(STAT_META) as StatKey[]
+
 export default function CreateCharacter() {
   const router = useRouter()
   const { id: gameId } = useParams<{ id: string }>()
   const [step, setStep] = useState<'archetype' | 'details'>('archetype')
   const [selected, setSelected] = useState<Archetype>(ARCHETYPES[0])
   const [charName, setCharName] = useState('')
-  const [bonusStats, setBonusStats] = useState<Record<StatKey, number>>({
-    strength: 0, intellect: 0, charisma: 0, cooking: 0, crafting: 0, wisdom: 0,
-  })
+  const [bonus, setBonus] = useState<Record<StatKey, number>>({ strength: 0, intellect: 0, charisma: 0, cooking: 0, crafting: 0, wisdom: 0 })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const pointsLeft = selected.bonusPoints - Object.values(bonusStats).reduce((a, b) => a + b, 0)
-  const adjustStat = (stat: StatKey, delta: number) => {
-    const current = bonusStats[stat]
-    const newVal = current + delta
-    if (newVal < 0) return
-    if (delta > 0 && pointsLeft <= 0) return
-    setBonusStats(prev => ({ ...prev, [stat]: newVal }))
+
+  const pointsLeft = selected.bonusPoints - Object.values(bonus).reduce((a, b) => a + b, 0)
+
+  const adjust = (stat: StatKey, d: number) => {
+    if (d < 0 && bonus[stat] <= 0) return
+    if (d > 0 && pointsLeft <= 0) return
+    setBonus(p => ({ ...p, [stat]: p[stat] + d }))
   }
-  const finalStats = (Object.keys(STAT_META) as StatKey[]).reduce((acc, key) => ({
-    ...acc,
-    [key]: selected.baseStats[key] + bonusStats[key],
-  }), {} as Record<StatKey, number>)
+
+  const finals = STAT_KEYS.reduce((acc, k) => ({ ...acc, [k]: selected.baseStats[k] + bonus[k] }), {} as Record<StatKey, number>)
+
   const create = async () => {
     if (!charName.trim()) { setError('Name your character.'); return }
+    if (pointsLeft !== 0) { setError(`Spend all ${selected.bonusPoints} points first.`); return }
     setLoading(true); setError('')
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) { router.push('/'); return }
     const { error: err } = await supabase.from('characters').insert({
-      game_id: gameId,
-      user_id: session.user.id,
-      name: charName.trim(),
-      archetype: selected.id,
-      stats: { ...finalStats, reputation: 5 },
-      position: { x: 400, y: 300 },
-      energy: 100,
-      gold: 50,
+      game_id: gameId, user_id: session.user.id,
+      name: charName.trim(), archetype: selected.id,
+      stats: { ...finals, reputation: 5 },
+      position: { x: 400, y: 300 }, energy: 100, max_energy: 100, gold: 50,
     })
     if (err) { setError(err.message); setLoading(false); return }
     router.push(`/game/${gameId}`)
   }
+
   return (
-    <div className="min-h-screen bg-bg px-6 py-10 max-w-lg mx-auto flex flex-col">
-      <button onClick={() => step === 'details' ? setStep('archetype') : router.push('/dashboard')}
-        className="text-xs font-ui text-parchment/30 mb-8 text-left">
-        ← Back
-      </button>
-      {step === 'archetype' && (
-        <>
-          <div className="mb-8">
-            <h1 className="font-display text-3xl font-black text-gold tracking-wide mb-2">Who Are You?</h1>
-            <p className="font-body text-parchment/50 italic">Choose your archetype. You can still customize your stats.</p>
-          </div>
-          <div className="space-y-3 mb-8">
-            {ARCHETYPES.map(arch => (
-              <button key={arch.id} onClick={() => {
-                setSelected(arch)
-                setBonusStats({ strength: 0, intellect: 0, charisma: 0, cooking: 0, crafting: 0, wisdom: 0 })
-              }}
-                className="w-full text-left p-4 rounded-xl border transition-all"
-                style={selected.id === arch.id
-                  ? { borderColor: 'rgba(201,168,76,0.6)', background: 'rgba(201,168,76,0.08)' }
-                  : { borderColor: '#3a3020', background: '#1f1a15' }
-                }>
-                <div className="flex items-start gap-3">
-                  <span className="text-2xl mt-0.5">{arch.emoji}</span>
-                  <div className="flex-1">
-                    <p className="font-ui text-sm font-bold" style={{ color: selected.id === arch.id ? '#c9a84c' : '#f0e6d0' }}>
+    <div style={{ minHeight: '100vh', background: '#0a0908' }}>
+      <div style={{ maxWidth: 480, margin: '0 auto', padding: '24px 24px 80px' }}>
+
+        <button onClick={() => step === 'details' ? setStep('archetype') : router.push('/dashboard')}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(245,240,232,0.3)', fontSize: 13, fontWeight: 500, marginBottom: 32 }}>
+          ← {step === 'details' ? 'Back' : 'Dashboard'}
+        </button>
+
+        {/* Progress */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 28 }}>
+          {['archetype', 'details'].map((s, i) => (
+            <div key={s} style={{ flex: 1, height: 3, borderRadius: 99, background: step === s || (s === 'archetype' && step === 'details') ? '#c9a84c' : '#2e2a22' }} />
+          ))}
+        </div>
+
+        {step === 'archetype' && (
+          <>
+            <h1 style={{ fontSize: 26, fontWeight: 700, color: '#f5f0e8', letterSpacing: '-0.02em', marginBottom: 6 }}>Who are you?</h1>
+            <p style={{ color: 'rgba(245,240,232,0.4)', fontSize: 14, marginBottom: 24 }}>Choose your archetype.</p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 32 }}>
+              {ARCHETYPES.map(arch => (
+                <button key={arch.id}
+                  onClick={() => { setSelected(arch); setBonus({ strength: 0, intellect: 0, charisma: 0, cooking: 0, crafting: 0, wisdom: 0 }) }}
+                  style={{
+                    textAlign: 'left', padding: '16px 18px', borderRadius: 14, cursor: 'pointer',
+                    background: selected.id === arch.id ? 'rgba(201,168,76,0.08)' : '#1a1814',
+                    border: `1px solid ${selected.id === arch.id ? 'rgba(201,168,76,0.4)' : '#2e2a22'}`,
+                    display: 'flex', alignItems: 'flex-start', gap: 14,
+                  }}>
+                  <span style={{ fontSize: 24, marginTop: 1 }}>{arch.emoji}</span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: selected.id === arch.id ? '#c9a84c' : '#f5f0e8', marginBottom: 3 }}>
                       {arch.name}
-                    </p>
-                    <p className="font-body text-xs italic text-parchment/40 mt-0.5">{arch.description}</p>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'rgba(245,240,232,0.4)', lineHeight: 1.5 }}>{arch.description}</div>
                     {selected.id === arch.id && (
-                      <p className="text-[10px] font-ui text-parchment/25 mt-2 italic">"{arch.flavor}"</p>
+                      <div style={{ fontSize: 11, color: 'rgba(201,168,76,0.5)', marginTop: 6, fontStyle: 'italic' }}>
+                        "{arch.flavor}"
+                      </div>
                     )}
                   </div>
-                </div>
-              </button>
-            ))}
-          </div>
-          <button onClick={() => setStep('details')}
-            className="w-full py-4 rounded-xl font-ui font-semibold text-bg text-sm tracking-wide mt-auto"
-            style={{ background: 'linear-gradient(135deg, #c9a84c, #e8c97a)', boxShadow: '0 0 25px rgba(201,168,76,0.2)' }}>
-            Continue →
-          </button>
-        </>
-      )}
-      {step === 'details' && (
-        <>
-          <div className="mb-6">
-            <h1 className="font-display text-3xl font-black text-gold tracking-wide mb-1">Shape Your Story</h1>
-            <p className="font-body text-parchment/50 italic">{selected.emoji} {selected.name}</p>
-          </div>
-          {/* Name */}
-          <div className="mb-6">
-            <label className="block text-xs font-ui text-gold/60 uppercase tracking-widest mb-2">Character Name</label>
-            <input value={charName} onChange={e => setCharName(e.target.value)}
-              placeholder="What's your name?"
-              className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-sm font-ui text-parchment placeholder:text-parchment/20 focus:outline-none focus:border-gold/50" />
-          </div>
-          {/* Stats */}
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-3">
-              <label className="text-xs font-ui text-gold/60 uppercase tracking-widest">Distribute Points</label>
-              <span className="text-xs font-ui font-bold px-2.5 py-1 rounded-lg"
-                style={{ background: pointsLeft > 0 ? 'rgba(201,168,76,0.15)' : 'rgba(255,255,255,0.05)', color: pointsLeft > 0 ? '#c9a84c' : 'rgba(255,255,255,0.3)' }}>
-                {pointsLeft} left
-              </span>
+                </button>
+              ))}
             </div>
-            <div className="space-y-2">
-              {(Object.keys(STAT_META) as StatKey[]).map(key => {
-                const meta = STAT_META[key]
-                const base = selected.baseStats[key]
-                const bonus = bonusStats[key]
-                const total = base + bonus
-                return (
-                  <div key={key} className="flex items-center gap-3 p-3 rounded-xl bg-card border border-border">
-                    <span className="text-lg w-7 text-center">{meta.emoji}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-ui text-xs font-semibold text-parchment/80">{meta.label}</p>
-                      <div className="flex gap-0.5 mt-1">
-                        {Array.from({ length: 10 }).map((_, i) => (
-                          <div key={i} className="h-1.5 flex-1 rounded-full"
-                            style={{ background: i < total ? '#c9a84c' : 'rgba(255,255,255,0.08)' }} />
-                        ))}
+
+            <button onClick={() => setStep('details')}
+              style={{
+                width: '100%', padding: '16px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
+                background: 'linear-gradient(135deg, #c9a84c, #dfc06a)',
+                color: '#1a1408', fontWeight: 700, fontSize: 15,
+                boxShadow: '0 4px 24px rgba(201,168,76,0.2)',
+              }}>
+              Continue →
+            </button>
+          </>
+        )}
+
+        {step === 'details' && (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+              <span style={{ fontSize: 22 }}>{selected.emoji}</span>
+              <h1 style={{ fontSize: 26, fontWeight: 700, color: '#f5f0e8', letterSpacing: '-0.02em' }}>{selected.name}</h1>
+            </div>
+            <p style={{ color: 'rgba(245,240,232,0.4)', fontSize: 14, marginBottom: 28 }}>Name your character and distribute your points.</p>
+
+            {/* Name */}
+            <div style={{ marginBottom: 24 }}>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(201,168,76,0.7)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+                Character Name
+              </label>
+              <input value={charName} onChange={e => setCharName(e.target.value)}
+                placeholder="What's your name?"
+                style={{ width: '100%', background: '#1a1814', border: '1px solid #2e2a22', borderRadius: 12, padding: '14px 16px', fontSize: 15, color: '#f5f0e8', outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+
+            {/* Stats */}
+            <div style={{ marginBottom: 28 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'rgba(201,168,76,0.7)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+                  Stats
+                </label>
+                <span style={{
+                  fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 99,
+                  background: pointsLeft > 0 ? 'rgba(201,168,76,0.12)' : 'rgba(255,255,255,0.05)',
+                  color: pointsLeft > 0 ? '#c9a84c' : 'rgba(255,255,255,0.25)',
+                }}>
+                  {pointsLeft} point{pointsLeft !== 1 ? 's' : ''} left
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {STAT_KEYS.map(key => {
+                  const meta = STAT_META[key]
+                  const total = finals[key]
+                  return (
+                    <div key={key} style={{ background: '#1a1814', border: '1px solid #2e2a22', borderRadius: 12, padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontSize: 18, width: 26, textAlign: 'center' }}>{meta.emoji}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#f5f0e8', marginBottom: 6 }}>{meta.label}</div>
+                        <div style={{ display: 'flex', gap: 3 }}>
+                          {Array.from({ length: 10 }).map((_, i) => (
+                            <div key={i} style={{ flex: 1, height: 4, borderRadius: 99, background: i < total ? '#c9a84c' : 'rgba(255,255,255,0.08)', transition: 'background 0.15s' }} />
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <button onClick={() => adjust(key, -1)} disabled={bonus[key] <= 0}
+                          style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid #2e2a22', background: bonus[key] > 0 ? '#2e2a22' : 'transparent', color: bonus[key] > 0 ? '#f5f0e8' : 'rgba(255,255,255,0.15)', cursor: bonus[key] > 0 ? 'pointer' : 'default', fontSize: 16, fontWeight: 700 }}>
+                          −
+                        </button>
+                        <span style={{ width: 22, textAlign: 'center', fontSize: 15, fontWeight: 700, color: '#c9a84c' }}>{total}</span>
+                        <button onClick={() => adjust(key, 1)} disabled={pointsLeft <= 0}
+                          style={{ width: 28, height: 28, borderRadius: 8, border: '1px solid #2e2a22', background: pointsLeft > 0 ? '#2e2a22' : 'transparent', color: pointsLeft > 0 ? '#f5f0e8' : 'rgba(255,255,255,0.15)', cursor: pointsLeft > 0 ? 'pointer' : 'default', fontSize: 16, fontWeight: 700 }}>
+                          +
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => adjustStat(key, -1)} disabled={bonus <= 0}
-                        className="w-7 h-7 rounded-lg text-sm font-bold text-parchment/40 bg-white/5 disabled:opacity-20">−</button>
-                      <span className="w-5 text-center text-sm font-bold font-ui text-gold">{total}</span>
-                      <button onClick={() => adjustStat(key, 1)} disabled={pointsLeft <= 0}
-                        className="w-7 h-7 rounded-lg text-sm font-bold text-parchment/40 bg-white/5 disabled:opacity-20">+</button>
-                    </div>
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
             </div>
-          </div>
-          {error && <p className="text-red-400 text-xs font-ui text-center mb-4">{error}</p>}
-          <button onClick={create} disabled={loading || pointsLeft !== 0}
-            className="w-full py-4 rounded-xl font-ui font-semibold text-bg text-sm tracking-wide disabled:opacity-40 mt-auto"
-            style={{ background: 'linear-gradient(135deg, #c9a84c, #e8c97a)', boxShadow: '0 0 25px rgba(201,168,76,0.2)' }}>
-            {loading ? 'Entering Caro...' : pointsLeft === 0 ? 'Enter Caro →' : `Spend ${pointsLeft} more point${pointsLeft !== 1 ? 's' : ''}`}
-          </button>
-        </>
-      )}
+
+            {error && <p style={{ color: '#f87171', fontSize: 13, textAlign: 'center', marginBottom: 16 }}>{error}</p>}
+
+            <button onClick={create} disabled={loading || pointsLeft !== 0}
+              style={{
+                width: '100%', padding: '16px 0', borderRadius: 14, border: 'none',
+                cursor: loading || pointsLeft !== 0 ? 'default' : 'pointer',
+                background: pointsLeft !== 0 ? 'rgba(201,168,76,0.25)' : 'linear-gradient(135deg, #c9a84c, #dfc06a)',
+                color: pointsLeft !== 0 ? 'rgba(26,20,8,0.5)' : '#1a1408',
+                fontWeight: 700, fontSize: 15,
+                boxShadow: pointsLeft === 0 ? '0 4px 24px rgba(201,168,76,0.2)' : 'none',
+              }}>
+              {loading ? 'Entering Caro...' : pointsLeft === 0 ? 'Enter Caro →' : `Spend ${pointsLeft} more point${pointsLeft !== 1 ? 's' : ''}`}
+            </button>
+          </>
+        )}
+      </div>
     </div>
   )
 }

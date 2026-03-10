@@ -1,15 +1,16 @@
 'use client'
 export const dynamic = 'force-dynamic'
 
-
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase, Game } from '@/lib/supabase'
+
 export default function Dashboard() {
   const router = useRouter()
   const [games, setGames] = useState<Game[]>([])
   const [username, setUsername] = useState('')
   const [loading, setLoading] = useState(true)
+
   useEffect(() => {
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession()
@@ -24,65 +25,74 @@ export default function Dashboard() {
     }
     load()
   }, [router])
-  const logout = async () => {
-    await supabase.auth.signOut()
-    router.push('/')
-  }
-  const formatDate = (iso: string) => {
-    const d = new Date(iso)
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  }
+
+  const logout = async () => { await supabase.auth.signOut(); router.push('/') }
+
+  const formatDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
   if (loading) return (
-    <div className="min-h-screen bg-bg flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin" />
+    <div style={{ position: 'fixed', inset: 0, background: '#0a0908', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 28, height: 28, border: '2px solid rgba(201,168,76,0.2)', borderTop: '2px solid #c9a84c', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
+
   return (
-    <div className="min-h-screen bg-bg px-6 py-10 max-w-lg mx-auto">
+    <div style={{ minHeight: '100vh', background: '#0a0908', padding: '0 0 40px' }}>
       {/* Header */}
-      <div className="flex items-end justify-between mb-10">
-        <div>
-          <h1 className="font-display text-4xl font-black text-gold glow-gold tracking-wide">CARO</h1>
-          <p className="font-ui text-sm text-parchment/40 mt-1">Welcome back, <span className="text-parchment/70">{username}</span></p>
-        </div>
-        <button onClick={logout} className="text-xs font-ui text-parchment/25 hover:text-parchment/50 transition-colors">
+      <div style={{ padding: '24px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', maxWidth: 480, margin: '0 auto' }}>
+        <span className="font-display" style={{ fontSize: 22, fontWeight: 900, color: '#c9a84c', letterSpacing: '0.1em' }}>CARO</span>
+        <button onClick={logout} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(245,240,232,0.3)', fontSize: 13, fontWeight: 500 }}>
           Sign out
         </button>
       </div>
-      {/* Games list */}
-      {games.length === 0 ? (
-        <div className="text-center py-20">
-          <p className="text-5xl mb-4">🏘️</p>
-          <p className="font-body text-xl text-parchment/60 italic mb-1">No towns yet.</p>
-          <p className="font-ui text-sm text-parchment/30">Create your first world below.</p>
+
+      <div style={{ maxWidth: 480, margin: '0 auto', padding: '32px 24px 0' }}>
+        {/* Greeting */}
+        <div style={{ marginBottom: 32 }}>
+          <h1 style={{ fontSize: 28, fontWeight: 700, color: '#f5f0e8', letterSpacing: '-0.02em' }}>
+            Welcome back, {username}
+          </h1>
+          <p style={{ color: 'rgba(245,240,232,0.4)', fontSize: 14, marginTop: 4 }}>
+            {games.length === 0 ? 'No worlds yet — create your first.' : `${games.length} world${games.length !== 1 ? 's' : ''}`}
+          </p>
         </div>
-      ) : (
-        <div className="space-y-3 mb-8">
-          <p className="text-xs font-ui text-gold/40 uppercase tracking-widest mb-4">Your Worlds</p>
-          {games.map(game => (
-            <button key={game.id}
-              onClick={() => router.push(`/game/${game.id}`)}
-              className="w-full text-left p-5 rounded-2xl border border-border bg-card transition-all active:scale-[0.99] hover:border-gold/30"
-              style={{ boxShadow: 'inset 0 0 40px rgba(0,0,0,0.3)' }}>
-              <div className="flex items-center justify-between">
+
+        {/* Games */}
+        {games.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            {games.map(game => (
+              <button key={game.id} onClick={() => router.push(`/game/${game.id}`)}
+                style={{
+                  width: '100%', textAlign: 'left', marginBottom: 10,
+                  background: '#1a1814', border: '1px solid #2e2a22',
+                  borderRadius: 16, padding: '18px 20px', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  transition: 'border-color 0.2s',
+                }}>
                 <div>
-                  <p className="font-display text-xl text-gold tracking-wide">{game.name}</p>
-                  <p className="font-ui text-xs text-parchment/30 mt-1">
-                    Day {game.day} · Last played {formatDate(game.last_played_at)}
-                  </p>
+                  <div style={{ fontSize: 17, fontWeight: 600, color: '#f5f0e8', marginBottom: 4 }}>{game.name}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(245,240,232,0.35)', fontWeight: 500 }}>
+                    Day {game.day} · {formatDate(game.last_played_at)}
+                  </div>
                 </div>
-                <span className="text-parchment/20 text-xl">→</span>
-              </div>
-            </button>
-          ))}
-        </div>
-      )}
-      {/* New game */}
-      <button onClick={() => router.push('/game/new')}
-        className="w-full py-4 rounded-xl font-ui font-semibold text-bg text-sm tracking-wide transition-all active:scale-[0.98]"
-        style={{ background: 'linear-gradient(135deg, #c9a84c, #e8c97a)', boxShadow: '0 0 25px rgba(201,168,76,0.25)' }}>
-        + New World
-      </button>
+                <div style={{ color: 'rgba(201,168,76,0.6)', fontSize: 18 }}>›</div>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* New world button */}
+        <button onClick={() => router.push('/game/new')}
+          style={{
+            width: '100%', padding: '16px 0', borderRadius: 14, border: 'none', cursor: 'pointer',
+            background: 'linear-gradient(135deg, #c9a84c, #dfc06a)',
+            color: '#1a1408', fontWeight: 700, fontSize: 15, letterSpacing: '-0.01em',
+            boxShadow: '0 4px 24px rgba(201,168,76,0.25)',
+          }}>
+          + New World
+        </button>
+      </div>
     </div>
   )
 }
