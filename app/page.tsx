@@ -46,79 +46,113 @@ export default function Home() {
   }
 
   if (checking) return (
-    <div className="min-h-screen bg-bg flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin" />
+    <div style={{ position: 'fixed', inset: 0, background: '#0e0c0a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 32, height: 32, border: '2px solid rgba(201,168,76,0.3)', borderTop: '2px solid #c9a84c', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
     </div>
   )
 
   return (
-    <div className="min-h-screen bg-bg flex flex-col items-center justify-center px-6 relative overflow-hidden">
-      {/* Background atmosphere */}
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,_rgba(201,168,76,0.06)_0%,_transparent_70%)]" />
-      <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom,_rgba(0,0,0,0.8)_0%,_transparent_60%)]" />
+    <div style={{
+      position: 'fixed', inset: 0,
+      background: '#0e0c0a',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      padding: '0 24px',
+      overflow: 'hidden',
+    }}>
+      {/* Atmospheric glow */}
+      <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center, rgba(201,168,76,0.07) 0%, transparent 65%)', pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '40%', background: 'linear-gradient(to top, rgba(0,0,0,0.5), transparent)', pointerEvents: 'none' }} />
 
-      <div className="relative z-10 w-full max-w-sm">
+      <div style={{ position: 'relative', zIndex: 10, width: '100%', maxWidth: 360 }}>
 
         {/* Title */}
-        <div className="text-center mb-10">
-          <h1 className="font-display text-7xl font-black text-gold glow-gold tracking-widest">CARO</h1>
-          <p className="font-body text-lg text-parchment/60 mt-2 italic">A living town. An AI world.</p>
+        <div style={{ textAlign: 'center', marginBottom: 48 }}>
+          <h1 className="font-display" style={{
+            fontSize: 80, fontWeight: 900, letterSpacing: '0.1em', lineHeight: 1,
+            color: '#c9a84c',
+            textShadow: '0 0 40px rgba(201,168,76,0.5), 0 0 80px rgba(201,168,76,0.2)',
+            margin: 0,
+          }}>CARO</h1>
+          <p className="font-body" style={{ color: 'rgba(240,230,208,0.5)', fontSize: 17, fontStyle: 'italic', marginTop: 10 }}>
+            A living town. An AI world.
+          </p>
         </div>
 
         {mode === 'landing' && (
-          <div className="space-y-3">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <button onClick={() => setMode('signup')}
-              className="w-full py-4 rounded-xl font-ui font-semibold text-bg text-sm tracking-wide transition-all active:scale-[0.98]"
-              style={{ background: 'linear-gradient(135deg, #c9a84c, #e8c97a)', boxShadow: '0 0 30px rgba(201,168,76,0.3)' }}>
+              className="font-ui"
+              style={{
+                width: '100%', padding: '16px 0', borderRadius: 14,
+                background: 'linear-gradient(135deg, #c9a84c, #e8c97a)',
+                boxShadow: '0 0 30px rgba(201,168,76,0.35)',
+                border: 'none', cursor: 'pointer',
+                color: '#1a1408', fontWeight: 700, fontSize: 14, letterSpacing: '0.05em',
+              }}>
               Begin Your Story
             </button>
             <button onClick={() => setMode('login')}
-              className="w-full py-4 rounded-xl font-ui font-semibold text-gold/80 text-sm tracking-wide border transition-all active:scale-[0.98]"
-              style={{ borderColor: 'rgba(201,168,76,0.3)', background: 'rgba(201,168,76,0.05)' }}>
+              className="font-ui"
+              style={{
+                width: '100%', padding: '16px 0', borderRadius: 14,
+                background: 'rgba(201,168,76,0.06)',
+                border: '1px solid rgba(201,168,76,0.25)',
+                cursor: 'pointer',
+                color: 'rgba(201,168,76,0.75)', fontWeight: 600, fontSize: 14,
+              }}>
               Continue Where You Left Off
             </button>
-            <p className="text-center text-xs text-parchment/20 font-ui mt-6 leading-relaxed">
+            <p className="font-ui" style={{ textAlign: 'center', fontSize: 11, color: 'rgba(240,230,208,0.2)', marginTop: 16, lineHeight: 1.7 }}>
               Your choices shape the town.<br />The town remembers everything.
             </p>
           </div>
         )}
 
         {(mode === 'signup' || mode === 'login') && (
-          <div className="space-y-4">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {mode === 'signup' && (
               <div>
-                <label className="block text-xs font-ui text-gold/60 uppercase tracking-widest mb-1.5">Your Name</label>
+                <label className="font-ui" style={{ display: 'block', fontSize: 10, color: 'rgba(201,168,76,0.55)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 6 }}>Your Name</label>
                 <input value={username} onChange={e => setUsername(e.target.value)}
                   placeholder="What shall people call you?"
-                  className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-sm font-ui text-parchment placeholder:text-parchment/20 focus:outline-none focus:border-gold/50" />
+                  className="font-ui"
+                  style={{ width: '100%', background: '#1f1a15', border: '1px solid #3a3020', borderRadius: 12, padding: '14px 16px', fontSize: 14, color: '#f0e6d0', outline: 'none', boxSizing: 'border-box' }} />
               </div>
             )}
             <div>
-              <label className="block text-xs font-ui text-gold/60 uppercase tracking-widest mb-1.5">Email</label>
+              <label className="font-ui" style={{ display: 'block', fontSize: 10, color: 'rgba(201,168,76,0.55)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 6 }}>Email</label>
               <input value={email} onChange={e => setEmail(e.target.value)} type="email"
                 placeholder="your@email.com"
-                className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-sm font-ui text-parchment placeholder:text-parchment/20 focus:outline-none focus:border-gold/50" />
+                className="font-ui"
+                style={{ width: '100%', background: '#1f1a15', border: '1px solid #3a3020', borderRadius: 12, padding: '14px 16px', fontSize: 14, color: '#f0e6d0', outline: 'none', boxSizing: 'border-box' }} />
             </div>
             <div>
-              <label className="block text-xs font-ui text-gold/60 uppercase tracking-widest mb-1.5">Password</label>
+              <label className="font-ui" style={{ display: 'block', fontSize: 10, color: 'rgba(201,168,76,0.55)', textTransform: 'uppercase', letterSpacing: '0.15em', marginBottom: 6 }}>Password</label>
               <input value={password} onChange={e => setPassword(e.target.value)} type="password"
                 placeholder="••••••••"
                 onKeyDown={e => e.key === 'Enter' && (mode === 'signup' ? handleSignup() : handleLogin())}
-                className="w-full bg-card border border-border rounded-xl px-4 py-3.5 text-sm font-ui text-parchment placeholder:text-parchment/20 focus:outline-none focus:border-gold/50" />
+                className="font-ui"
+                style={{ width: '100%', background: '#1f1a15', border: '1px solid #3a3020', borderRadius: 12, padding: '14px 16px', fontSize: 14, color: '#f0e6d0', outline: 'none', boxSizing: 'border-box' }} />
             </div>
 
-            {error && <p className="text-red-400 text-xs font-ui text-center">{error}</p>}
+            {error && <p className="font-ui" style={{ color: '#f87171', fontSize: 12, textAlign: 'center' }}>{error}</p>}
 
-            <button
-              onClick={mode === 'signup' ? handleSignup : handleLogin}
-              disabled={loading}
-              className="w-full py-4 rounded-xl font-ui font-semibold text-bg text-sm tracking-wide mt-2 disabled:opacity-50 transition-all active:scale-[0.98]"
-              style={{ background: 'linear-gradient(135deg, #c9a84c, #e8c97a)', boxShadow: '0 0 20px rgba(201,168,76,0.25)' }}>
+            <button onClick={mode === 'signup' ? handleSignup : handleLogin} disabled={loading}
+              className="font-ui"
+              style={{
+                width: '100%', padding: '16px 0', borderRadius: 14, marginTop: 4,
+                background: loading ? 'rgba(201,168,76,0.4)' : 'linear-gradient(135deg, #c9a84c, #e8c97a)',
+                boxShadow: '0 0 20px rgba(201,168,76,0.25)',
+                border: 'none', cursor: loading ? 'default' : 'pointer',
+                color: '#1a1408', fontWeight: 700, fontSize: 14, letterSpacing: '0.05em',
+              }}>
               {loading ? 'One moment...' : mode === 'signup' ? 'Enter Caro' : 'Return to Caro'}
             </button>
 
             <button onClick={() => { setMode('landing'); setError('') }}
-              className="w-full py-2 text-xs font-ui text-parchment/30">
+              className="font-ui"
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(240,230,208,0.25)', fontSize: 12, padding: '8px 0' }}>
               ← Back
             </button>
           </div>
