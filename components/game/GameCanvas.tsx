@@ -10,21 +10,109 @@ type Props = {
   onNpcInteract: (npc: NpcSoul) => void
 }
 
-const NPC_POS: Record<string, { x: number; y: number }> = {
-  eleanor: { x: 260, y: 280 },
-  silas:   { x: 740, y: 260 },
-  maeve:   { x: 160, y: 520 },
-  caleb:   { x: 500, y: 160 },
-  ruth:    { x: 820, y: 490 },
+// Tile index = row * 12 + col  (packed tilemap, 12 wide, 16×16 tiles, no spacing)
+const T = {
+  GRASS:      0,
+  GRASS_F1:   1,
+  GRASS_F2:   2,
+  TREE_S:     5,
+  TREE_TL:    7,  TREE_TR:    8,
+  TREE_BL:   19,  TREE_BR:   20,
+  TREE_ATL:   9,  TREE_ATR:  10,
+  TREE_ABL:  21,  TREE_ABR:  22,
+  BUSH_Y:    27,  BUSH_G:    28,
+  BUSH_HL:   30,  BUSH_HR:   31,
+  DIRT:      25,
+  DIRT_V1:   39,  DIRT_V2:   40,
+  COBB:      32,
+  // Grass/dirt transitions
+  TRN_TL:    12,  TRN_T:     13,  TRN_TR:    14,
+  TRN_L:     24,  TRN_R:     26,
+  TRN_BL:    36,  TRN_B:     37,  TRN_BR:    38,
+  // Blue-grey roof
+  ROOF_TL:   48,  ROOF_T:    49,  ROOF_TR:   50,
+  ROOF_ML:   60,  ROOF_M:    61,  ROOF_MR:   62,
+  // Red-brick roof
+  ROOFRED_TL:52, ROOFRED_T:  53, ROOFRED_TR: 54,
+  ROOFRED_ML:64, ROOFRED_M:  65, ROOFRED_MR: 66,
+  // Wooden building walls
+  WWALL_L:   72,  WWALL_C:   73,  WWALL_D:   74,  WWALL_W:   75,
+  WWALL_WL:  84,  WWALL_WD:  85,  WWALL_WR:  86,
+  WWALL_BL:  96,  WWALL_BC:  97,  WWALL_BR:  99,
+  // Stone building walls
+  SWALL_L:   76,  SWALL_C:   77,  SWALL_D:   78,  SWALL_R:   79,
+  SWALL_WL:  88,  SWALL_WD:  89,  SWALL_WR:  90,
+  SWALL_BL: 100,  SWALL_BC: 101,  SWALL_BR: 103,
+  // Fence
+  FENCE_TL:  33,  FENCE_T:   34,  FENCE_TR:  35,
+  FENCE_L:   45,  FENCE_P:   46,  FENCE_R:   47,
+  FENCE_BL:  57,  FENCE_B:   58,  FENCE_BR:  59,
+  // Decorations
+  WELL:      92,
+  ANVIL:    105,  HAMMER:   106,
+  BARREL:   107,
+  SIGN:      83,
+  HAY:       94,
+  MUSHROOM:  29,
 }
 
-const NPC_STYLE: Record<string, { body: number; hair: number; top: number; accent: number }> = {
-  eleanor: { body: 0xfde8cc, hair: 0x6b3515, top: 0xe07878, accent: 0xf4a58a },
-  silas:   { body: 0xd4a870, hair: 0x2a1a0a, top: 0x546a84, accent: 0x8aa4bc },
-  maeve:   { body: 0xf2e0c8, hair: 0x1a0a2e, top: 0x7a5090, accent: 0xb09ac8 },
-  caleb:   { body: 0xfcd8a8, hair: 0x7a5020, top: 0x4a8060, accent: 0x8cc0a0 },
-  ruth:    { body: 0xfde0cc, hair: 0x8b0808, top: 0x506088, accent: 0x90a8c8 },
+// NPC world tile positions (in tile coords, 16px each, zoom 3×)
+const NPC_TILE: Record<string, { tx: number; ty: number }> = {
+  eleanor: { tx: 6,  ty: 7  },
+  silas:   { tx: 18, ty: 6  },
+  maeve:   { tx: 3,  ty: 13 },
+  caleb:   { tx: 13, ty: 4  },
+  ruth:    { tx: 20, ty: 13 },
 }
+
+const NPC_COLORS: Record<string, { body: number; hair: number; shirt: number }> = {
+  eleanor: { body: 0xfde8cc, hair: 0x6b3515, shirt: 0xe07878 },
+  silas:   { body: 0xd4a870, hair: 0x2a1a0a, shirt: 0x546a84 },
+  maeve:   { body: 0xf2e0c8, hair: 0x1a0a2e, shirt: 0x7a5090 },
+  caleb:   { body: 0xfcd8a8, hair: 0x7a5020, shirt: 0x4a8060 },
+  ruth:    { body: 0xfde0cc, hair: 0x8b0808, shirt: 0x506088 },
+}
+
+// 24×18 town map (row, col) — 0 = grass, use T constants
+// prettier-ignore
+const MAP_DATA: number[][] = [
+  // Row 0
+  [T.TREE_TL,T.TREE_TR,T.GRASS,T.GRASS_F1,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.TREE_TL,T.TREE_TR,T.GRASS,T.GRASS,T.GRASS,T.GRASS_F2,T.GRASS,T.GRASS,T.TREE_TL,T.TREE_TR,T.GRASS],
+  // Row 1
+  [T.TREE_BL,T.TREE_BR,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.TREE_BL,T.TREE_BR,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.TREE_BL,T.TREE_BR,T.GRASS],
+  // Row 2 — top buildings row
+  [T.GRASS,T.GRASS,T.GRASS,T.ROOFRED_TL,T.ROOFRED_T,T.ROOFRED_T,T.ROOFRED_TR,T.GRASS,T.GRASS,T.GRASS,T.ROOF_TL,T.ROOF_T,T.ROOF_T,T.ROOF_T,T.ROOF_TR,T.GRASS,T.GRASS,T.ROOFRED_TL,T.ROOFRED_T,T.ROOFRED_TR,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 3 — roof mid
+  [T.GRASS,T.GRASS,T.GRASS,T.ROOFRED_ML,T.ROOFRED_M,T.ROOFRED_M,T.ROOFRED_MR,T.GRASS,T.GRASS,T.GRASS,T.ROOF_ML,T.ROOF_M,T.ROOF_M,T.ROOF_M,T.ROOF_MR,T.GRASS,T.GRASS,T.ROOFRED_ML,T.ROOFRED_M,T.ROOFRED_MR,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 4 — wall top
+  [T.GRASS,T.BUSH_G,T.GRASS,T.WWALL_L,T.WWALL_WL,T.WWALL_WD,T.WWALL_W,T.GRASS,T.GRASS,T.GRASS,T.SWALL_L,T.SWALL_WL,T.SWALL_WD,T.SWALL_WD,T.SWALL_WR,T.GRASS,T.GRASS,T.WWALL_L,T.WWALL_WD,T.WWALL_W,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 5 — wall door
+  [T.GRASS,T.GRASS,T.GRASS,T.WWALL_L,T.WWALL_C,T.WWALL_D,T.WWALL_W,T.GRASS,T.GRASS,T.GRASS,T.SWALL_L,T.SWALL_C,T.SWALL_D,T.SWALL_C,T.SWALL_R,T.GRASS,T.GRASS,T.WWALL_L,T.WWALL_D,T.WWALL_W,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 6 — base
+  [T.GRASS,T.GRASS,T.GRASS,T.WWALL_BL,T.WWALL_BC,T.WWALL_BC,T.WWALL_BR,T.GRASS,T.GRASS,T.GRASS,T.SWALL_BL,T.SWALL_BC,T.SWALL_BC,T.SWALL_BC,T.SWALL_BR,T.GRASS,T.GRASS,T.WWALL_BL,T.WWALL_BC,T.WWALL_BR,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 7 — horizontal path
+  [T.TRN_TL,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_TR],
+  // Row 8 — path center
+  [T.TRN_L,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.COBB,T.COBB,T.COBB,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_R],
+  // Row 9 — vertical path center (crossroad)
+  [T.TRN_L,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.COBB,T.WELL,T.COBB,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_R],
+  // Row 10 — path center 2
+  [T.TRN_L,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.COBB,T.COBB,T.COBB,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_R],
+  // Row 11 — path bottom edge
+  [T.TRN_BL,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_BR],
+  // Row 12 — lower area
+  [T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.FENCE_TL,T.FENCE_T,T.FENCE_T,T.FENCE_T,T.FENCE_TR,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS_F1,T.GRASS,T.TREE_ATL,T.TREE_ATR,T.GRASS,T.GRASS],
+  // Row 13 — lower buildings
+  [T.GRASS,T.ROOF_TL,T.ROOF_T,T.ROOF_TR,T.FENCE_L,T.GRASS_F2,T.HAY,T.MUSHROOM,T.FENCE_R,T.GRASS,T.ROOFRED_TL,T.ROOFRED_T,T.ROOFRED_T,T.ROOFRED_TR,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.TREE_ABL,T.TREE_ABR,T.GRASS,T.GRASS],
+  // Row 14
+  [T.GRASS,T.ROOF_ML,T.ROOF_M,T.ROOF_MR,T.FENCE_L,T.GRASS,T.GRASS,T.BARREL,T.FENCE_R,T.GRASS,T.ROOFRED_ML,T.ROOFRED_M,T.ROOFRED_M,T.ROOFRED_MR,T.GRASS,T.TREE_TL,T.TREE_TR,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 15
+  [T.GRASS,T.SWALL_L,T.SWALL_WD,T.SWALL_R,T.FENCE_BL,T.FENCE_B,T.FENCE_B,T.FENCE_B,T.FENCE_BR,T.GRASS,T.WWALL_L,T.WWALL_WD,T.WWALL_D,T.WWALL_W,T.GRASS,T.TREE_BL,T.TREE_BR,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 16
+  [T.GRASS,T.SWALL_L,T.SWALL_D,T.SWALL_R,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.WWALL_L,T.WWALL_C,T.WWALL_D,T.WWALL_W,T.GRASS,T.GRASS,T.GRASS,T.GRASS_F1,T.GRASS,T.GRASS,T.TREE_TL,T.TREE_TR,T.GRASS,T.GRASS],
+  // Row 17
+  [T.TREE_TL,T.SWALL_BL,T.SWALL_BC,T.SWALL_BR,T.GRASS,T.BUSH_HL,T.BUSH_HR,T.GRASS,T.GRASS,T.GRASS,T.WWALL_BL,T.WWALL_BC,T.WWALL_BC,T.WWALL_BR,T.GRASS,T.GRASS,T.GRASS_F2,T.GRASS,T.GRASS,T.GRASS,T.TREE_BL,T.TREE_BR,T.GRASS,T.TREE_TR],
+]
 
 export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -35,463 +123,180 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
 
     const init = async () => {
       const Phaser = (await import('phaser')).default
+      const TILE = 16
+      const ZOOM = 3
+      const COLS = 24, ROWS = 18
+      const WW = COLS * TILE * ZOOM
+      const WH = ROWS * TILE * ZOOM
+      const isMobile = window.innerWidth < 768
 
       class TownScene extends Phaser.Scene {
         player!: Phaser.GameObjects.Container
         npcMap: Map<string, Phaser.GameObjects.Container> = new Map()
         cursors!: Phaser.Types.Input.Keyboard.CursorKeys
-        wasd!: any
-        eKey!: Phaser.Input.Keyboard.Key
+        wasd!: Record<string, Phaser.Input.Keyboard.Key>
         nearbyNpc: string | null = null
         hint!: Phaser.GameObjects.Container
-        walkTimer = 0
-        walkFrame = 0
+        walkTimer = 0; walkFrame = 0
         joystick = { on: false, x0: 0, y0: 0, cx: 0, cy: 0 }
-        jBase!: Phaser.GameObjects.Arc
-        jThumb!: Phaser.GameObjects.Arc
-        mobile = window.innerWidth < 768
-        WW = 1024
-        WH = 768
+        jBase!: Phaser.GameObjects.Arc; jThumb!: Phaser.GameObjects.Arc
 
         constructor() { super({ key: 'TownScene' }) }
 
-        // ── Texture generators ──────────────────────────────────────────
-
-        makePerson(key: string, bodyCol: number, hairCol: number, topCol: number, accentCol: number, walk = 0) {
-          const S = 4 // scale factor for crispness
-          const W = 14 * S, H = 22 * S
+        // Draw a tiny pixel-art character at 6×6 px per "pixel" for crisp look
+        makeCharSprite(key: string, bodyCol: number, hairCol: number, shirtCol: number, frame = 0) {
+          const PX = 2 // each "pixel" = 2 actual pixels
+          const W = 8 * PX, H = 14 * PX
           const g = this.add.graphics()
 
-          // Soft shadow
-          g.fillStyle(0x000000, 0.18)
-          g.fillEllipse(W / 2, H + S, W * 0.7, S * 2)
+          // Shadow
+          g.fillStyle(0x000000, 0.2)
+          g.fillEllipse(W / 2, H + PX, W * 0.7, PX * 2)
 
           // Shoes
           g.fillStyle(0x2a1a0e)
-          const lx = W / 2 - 4 * S, rx = W / 2 + S
-          const lo = walk === 1 ? S : walk === 2 ? -S : 0
-          g.fillRoundedRect(lx, H - 4 * S + lo, 4 * S, 3 * S, S)
-          g.fillRoundedRect(rx, H - 4 * S - lo, 4 * S, 3 * S, S)
+          const lo = frame === 1 ? PX : frame === 2 ? -PX : 0
+          g.fillRect(PX, H - 2 * PX + lo, 2 * PX, PX)
+          g.fillRect(4 * PX, H - 2 * PX - lo, 2 * PX, PX)
 
           // Pants
           g.fillStyle(0x2a3550)
-          g.fillRoundedRect(lx, H - 9 * S + lo, 4 * S, 6 * S, S)
-          g.fillRoundedRect(rx, H - 9 * S - lo, 4 * S, 6 * S, S)
+          g.fillRect(PX, H - 5 * PX + lo, 2 * PX, 3 * PX)
+          g.fillRect(4 * PX, H - 5 * PX - lo, 2 * PX, 3 * PX)
 
-          // Top/shirt
-          g.fillStyle(topCol)
-          g.fillRoundedRect(W / 2 - 5 * S, H - 16 * S, 10 * S, 8 * S, S)
-
-          // Collar accent
-          g.fillStyle(accentCol)
-          g.fillRoundedRect(W / 2 - 2 * S, H - 16 * S, 4 * S, 2 * S, S * 0.5)
+          // Shirt
+          g.fillStyle(shirtCol)
+          g.fillRect(PX, H - 9 * PX, 6 * PX, 4 * PX)
 
           // Arms
-          g.fillStyle(topCol)
-          g.fillRoundedRect(W / 2 - 8 * S, H - 15 * S, 3 * S, 6 * S, S)
-          g.fillRoundedRect(W / 2 + 5 * S, H - 15 * S, 3 * S, 6 * S, S)
+          g.fillRect(0, H - 9 * PX, PX, 3 * PX)
+          g.fillRect(7 * PX, H - 9 * PX, PX, 3 * PX)
 
-          // Hands
+          // Skin (hands + neck)
           g.fillStyle(bodyCol)
-          g.fillCircle(W / 2 - 7 * S + S / 2, H - 9 * S, S * 1.5)
-          g.fillCircle(W / 2 + 6 * S + S / 2, H - 9 * S, S * 1.5)
-
-          // Neck
-          g.fillStyle(bodyCol)
-          g.fillRect(W / 2 - S, H - 18 * S, 2 * S, 3 * S)
+          g.fillRect(0, H - 7 * PX, PX, PX)
+          g.fillRect(7 * PX, H - 7 * PX, PX, PX)
+          g.fillRect(3 * PX, H - 10 * PX, 2 * PX, PX)
 
           // Head
           g.fillStyle(bodyCol)
-          g.fillRoundedRect(W / 2 - 4 * S, H - 22 * S, 8 * S, 7 * S, S * 1.5)
-
-          // Blush
-          g.fillStyle(0xffaaaa, 0.25)
-          g.fillCircle(W / 2 - 3 * S, H - 17 * S, S)
-          g.fillCircle(W / 2 + 3 * S, H - 17 * S, S)
+          g.fillRect(2 * PX, H - 14 * PX, 5 * PX, 5 * PX)
 
           // Eyes
           g.fillStyle(0x1a1a2e)
-          g.fillCircle(W / 2 - 2 * S, H - 19 * S, S * 0.8)
-          g.fillCircle(W / 2 + 2 * S, H - 19 * S, S * 0.8)
-
-          // Eye shine
-          g.fillStyle(0xffffff, 0.9)
-          g.fillCircle(W / 2 - 2 * S + S * 0.3, H - 19 * S - S * 0.3, S * 0.3)
-          g.fillCircle(W / 2 + 2 * S + S * 0.3, H - 19 * S - S * 0.3, S * 0.3)
+          g.fillRect(3 * PX, H - 12 * PX, PX, PX)
+          g.fillRect(5 * PX, H - 12 * PX, PX, PX)
 
           // Hair
           g.fillStyle(hairCol)
-          g.fillRoundedRect(W / 2 - 4 * S, H - 22 * S, 8 * S, 4 * S, { tl: S * 1.5, tr: S * 1.5, bl: 0, br: 0 })
-          g.fillRect(W / 2 - 5 * S, H - 20 * S, S, 3 * S)
-          g.fillRect(W / 2 + 4 * S, H - 20 * S, S, 2 * S)
+          g.fillRect(2 * PX, H - 14 * PX, 5 * PX, 2 * PX)
+          g.fillRect(PX, H - 13 * PX, PX, 2 * PX)
 
-          g.generateTexture(key, W + S, H + S * 2)
+          g.generateTexture(key, W + PX, H + PX * 2)
           g.destroy()
         }
 
-        makeBuilding(key: string, w: number, h: number, wallCol: number, roofCol: number, accent: number) {
-          const g = this.add.graphics()
-          const S = 2
-
-          // Drop shadow
-          g.fillStyle(0x000000, 0.2)
-          g.fillRoundedRect(S * 3, h / 2 + S * 3, w, h / 2 + S, S)
-
-          // Wall
-          g.fillStyle(wallCol)
-          g.fillRoundedRect(0, h / 2, w, h / 2, { tl: 0, tr: 0, bl: S * 2, br: S * 2 })
-
-          // Wall shading (left side darker)
-          g.fillStyle(0x000000, 0.08)
-          g.fillRect(0, h / 2, w * 0.25, h / 2)
-
-          // Roof (pentagon shape)
-          const roofH = h * 0.55
-          g.fillStyle(roofCol)
-          g.fillTriangle(0, h / 2, w / 2, h / 2 - roofH, w, h / 2)
-
-          // Roof highlight
-          g.fillStyle(0xffffff, 0.08)
-          g.fillTriangle(w * 0.1, h / 2, w / 2, h / 2 - roofH, w * 0.5, h / 2)
-
-          // Roof ridge
-          g.lineStyle(S, accent, 0.4)
-          g.lineBetween(w / 2, h / 2 - roofH + S, w / 2, h / 2)
-
-          // Front door
-          g.fillStyle(0x3d1f00)
-          const dw = w * 0.2, dh = h * 0.24
-          g.fillRoundedRect(w / 2 - dw / 2, h - dh, dw, dh, S)
-          g.lineStyle(S, 0x1a0a00, 0.8)
-          g.strokeRoundedRect(w / 2 - dw / 2, h - dh, dw, dh, S)
-
-          // Door knob
-          g.fillStyle(0xc9a84c)
-          g.fillCircle(w / 2 + dw / 4, h - dh * 0.45, S * 1.5)
-
-          // Left window
-          this.drawWindow(g, w * 0.12, h * 0.56, w * 0.2, h * 0.2, S)
-          // Right window
-          this.drawWindow(g, w * 0.68, h * 0.56, w * 0.2, h * 0.2, S)
-
-          // Outline
-          g.lineStyle(S * 0.5, 0x000000, 0.15)
-          g.strokeRoundedRect(0, h / 2, w, h / 2, { tl: 0, tr: 0, bl: S * 2, br: S * 2 })
-
-          g.generateTexture(key, w + S * 4, h + S * 4)
-          g.destroy()
+        preload() {
+          this.load.image('tiles', '/assets/tilemap.png')
         }
-
-        drawWindow(g: Phaser.GameObjects.Graphics, x: number, y: number, w: number, h: number, S: number) {
-          // Frame
-          g.fillStyle(0x5a4020)
-          g.fillRoundedRect(x - S, y - S, w + S * 2, h + S * 2, S)
-          // Glass (warm glow)
-          g.fillStyle(0xffd890, 0.85)
-          g.fillRoundedRect(x, y, w, h, S * 0.5)
-          // Cross pane
-          g.lineStyle(S * 0.75, 0x8a6030, 0.6)
-          g.lineBetween(x + w / 2, y, x + w / 2, y + h)
-          g.lineBetween(x, y + h / 2, x + w, y + h / 2)
-        }
-
-        makeTree(key: string) {
-          const g = this.add.graphics()
-          const W = 60, H = 80
-
-          // Shadow
-          g.fillStyle(0x000000, 0.15)
-          g.fillEllipse(W / 2, H - 6, 32, 10)
-
-          // Trunk
-          g.fillStyle(0x7a5030)
-          g.fillRoundedRect(W / 2 - 5, H - 30, 10, 26, 3)
-          g.fillStyle(0x9a6a40, 0.5)
-          g.fillRect(W / 2, H - 30, 3, 26)
-
-          // Canopy layers (dark to light, bottom to top)
-          g.fillStyle(0x2a5e18)
-          g.fillCircle(W / 2, H - 38, 22)
-          g.fillStyle(0x388a22)
-          g.fillCircle(W / 2 - 6, H - 44, 16)
-          g.fillCircle(W / 2 + 6, H - 44, 16)
-          g.fillStyle(0x4aaa2e)
-          g.fillCircle(W / 2, H - 50, 16)
-          g.fillStyle(0x5ec038)
-          g.fillCircle(W / 2 - 3, H - 54, 10)
-          g.fillCircle(W / 2 + 3, H - 55, 9)
-          // Highlight
-          g.fillStyle(0x78d84e, 0.5)
-          g.fillCircle(W / 2 - 5, H - 57, 6)
-
-          g.generateTexture(key, W, H)
-          g.destroy()
-        }
-
-        makeGrassTile(key: string, variant: number) {
-          const g = this.add.graphics()
-          const colors = [0x5c9e3a, 0x60a83e, 0x58983a]
-          g.fillStyle(colors[variant % 3])
-          g.fillRect(0, 0, 64, 64)
-          // Subtle blade details
-          g.fillStyle(0x000000, 0.04)
-          for (let i = 0; i < 6; i++) {
-            g.fillRect(Math.random() * 60, Math.random() * 60, 2, 4)
-          }
-          g.fillStyle(0xffffff, 0.04)
-          for (let i = 0; i < 4; i++) {
-            g.fillCircle(Math.random() * 60, Math.random() * 60, 3)
-          }
-          g.generateTexture(key, 64, 64)
-          g.destroy()
-        }
-
-        makePathTile() {
-          const g = this.add.graphics()
-          g.fillStyle(0xc4a86e)
-          g.fillRect(0, 0, 64, 64)
-          g.fillStyle(0xb49658, 0.5)
-          g.fillRect(8, 20, 6, 6); g.fillRect(32, 8, 8, 5); g.fillRect(50, 34, 7, 5)
-          g.fillStyle(0xd4b87e, 0.4)
-          g.fillRect(18, 42, 5, 5); g.fillRect(44, 12, 4, 4)
-          g.generateTexture('path', 64, 64)
-          g.destroy()
-        }
-
-        makeWater(key: string, frame: number) {
-          const g = this.add.graphics()
-          g.fillStyle(0x3a8ec4)
-          g.fillRect(0, 0, 64, 64)
-          g.fillStyle(0x5aaee0, 0.6)
-          g.fillRect(0, 0, 64, 64)
-          // Ripples
-          const offsets = [0, 8, 16]
-          const o = offsets[frame % 3]
-          g.fillStyle(0x80c8f0, 0.35)
-          for (let i = 0; i < 4; i++) {
-            g.fillRoundedRect((i * 18 + o) % 64, 10, 12, 3, 2)
-            g.fillRoundedRect((i * 16 + o + 5) % 64, 36, 10, 2, 1)
-            g.fillRoundedRect((i * 20 + o) % 64, 52, 8, 2, 1)
-          }
-          g.fillStyle(0xffffff, 0.08)
-          g.fillRoundedRect(10, 18, 20, 4, 2)
-          g.generateTexture(key, 64, 64)
-          g.destroy()
-        }
-
-        makeFlowers() {
-          const g = this.add.graphics()
-          g.fillStyle(0x5c9e3a)
-          g.fillRect(0, 0, 32, 32)
-          const flowers = [[6, 20], [16, 10], [24, 22]]
-          flowers.forEach(([fx, fy], i) => {
-            const petal = [0xffdd44, 0xff88aa, 0xaa88ff][i]
-            g.fillStyle(petal, 0.9)
-            for (let a = 0; a < 5; a++) {
-              const ra = (a / 5) * Math.PI * 2
-              g.fillCircle(fx + Math.cos(ra) * 3, fy + Math.sin(ra) * 3, 2.5)
-            }
-            g.fillStyle(0xffee88)
-            g.fillCircle(fx, fy, 2)
-          })
-          g.generateTexture('flowers', 32, 32)
-          g.destroy()
-        }
-
-        makeFountain() {
-          const g = this.add.graphics()
-          const W = 72, H = 60
-          // Basin
-          g.fillStyle(0x8ab0d0)
-          g.fillEllipse(W / 2, H * 0.7, W * 0.9, H * 0.4)
-          g.fillStyle(0x6898b8)
-          g.fillEllipse(W / 2, H * 0.7 + 4, W * 0.8, H * 0.3)
-          // Water
-          g.fillStyle(0x5aaee0, 0.8)
-          g.fillEllipse(W / 2, H * 0.7, W * 0.75, H * 0.28)
-          // Pillar
-          g.fillStyle(0xd4c8a8)
-          g.fillRect(W / 2 - 5, H * 0.2, 10, H * 0.5)
-          // Top bowl
-          g.fillStyle(0xc4b898)
-          g.fillEllipse(W / 2, H * 0.22, 30, 12)
-          // Water spray
-          g.fillStyle(0x90d0f0, 0.7)
-          g.fillCircle(W / 2, H * 0.1, 5)
-          g.fillStyle(0xb0e4ff, 0.4)
-          g.fillCircle(W / 2, H * 0.05, 3)
-          g.generateTexture('fountain', W, H)
-          g.destroy()
-        }
-
-        preload() {}
 
         create() {
-          const WW = this.WW, WH = this.WH
-          const TW = 64
+          // ── Tilemap ───────────────────────────────────────────────────
+          const map = this.make.tilemap({
+            data: MAP_DATA,
+            tileWidth: TILE,
+            tileHeight: TILE,
+          })
+          const tileset = map.addTilesetImage('tiles', 'tiles', TILE, TILE, 0, 0)!
+          const layer = map.createLayer(0, tileset, 0, 0)!
+          layer.setScale(ZOOM)
+          layer.setDepth(0)
 
-          // Generate all textures
-          for (let i = 0; i < 3; i++) this.makeGrassTile(`grass${i}`, i)
-          this.makePathTile()
-          for (let i = 0; i < 3; i++) this.makeWater(`water${i}`, i)
-          this.makeFlowers()
-          this.makeFountain()
-          this.makeTree('tree')
+          // ── Characters ─────────────────────────────────────────────────
+          // Player sprite
+          this.makeCharSprite('p_idle', 0xffe0b0, 0x5a3a10, 0x3a5a8a, 0)
+          this.makeCharSprite('p_w1',   0xffe0b0, 0x5a3a10, 0x3a5a8a, 1)
+          this.makeCharSprite('p_w2',   0xffe0b0, 0x5a3a10, 0x3a5a8a, 2)
 
-          this.makeBuilding('bld_bakery',  160, 130, 0xead4a0, 0xb04040, 0xc8a060)
-          this.makeBuilding('bld_forge',   150, 120, 0xb0a090, 0x505060, 0x808090)
-          this.makeBuilding('bld_cottage', 140, 118, 0xb8c8a0, 0x506840, 0x90a878)
-          this.makeBuilding('bld_hall',    200, 140, 0xe8dcb8, 0x905030, 0xc8a870)
-          this.makeBuilding('bld_library', 170, 128, 0xb8c0d4, 0x485878, 0x8898b8)
-          this.makeBuilding('bld_tavern',  150, 118, 0xd4b890, 0x884428, 0xb07848)
-
-          // Player
-          this.makePerson('p_idle', 0xffe0b0, 0x5a3a10, 0x3a5a8a, 0x7090c0, 0)
-          this.makePerson('p_w1',   0xffe0b0, 0x5a3a10, 0x3a5a8a, 0x7090c0, 1)
-          this.makePerson('p_w2',   0xffe0b0, 0x5a3a10, 0x3a5a8a, 0x7090c0, 2)
-
-          // NPCs
           npcs.forEach(npc => {
-            const s = NPC_STYLE[npc.id] || { body: 0xfde0cc, hair: 0x3d1f00, top: 0x808080, accent: 0xa0a0a0 }
-            this.makePerson(`npc_${npc.id}_i`, s.body, s.hair, s.top, s.accent, 0)
-            this.makePerson(`npc_${npc.id}_w`, s.body, s.hair, s.top, s.accent, 1)
+            const c = NPC_COLORS[npc.id] || { body: 0xfde0cc, hair: 0x3d1f00, shirt: 0x808080 }
+            this.makeCharSprite(`npc_${npc.id}_i`, c.body, c.hair, c.shirt, 0)
+            this.makeCharSprite(`npc_${npc.id}_w`, c.body, c.hair, c.shirt, 1)
           })
 
-          // ── Tile map ──────────────────────────────────────
-          const cols = Math.ceil(WW / TW) + 1, rows = Math.ceil(WH / TW) + 1
-          const variants = ['grass0', 'grass0', 'grass0', 'grass1', 'grass2']
-          for (let r = 0; r < rows; r++) {
-            for (let c = 0; c < cols; c++) {
-              const key = variants[Math.floor(Math.abs(Math.sin(r * 7 + c * 13) * 10)) % variants.length]
-              this.add.image(c * TW, r * TW, key).setOrigin(0).setDisplaySize(TW, TW)
-            }
-          }
-
-          // Paths (horizontal + vertical through center)
-          const cx = WW / 2, cy = WH / 2
-          for (let c = 0; c < cols + 1; c++) this.add.image(c * TW, cy - 24, 'path').setOrigin(0).setDisplaySize(TW, 48)
-          for (let r = 0; r < rows + 1; r++) this.add.image(cx - 24, r * TW, 'path').setOrigin(0).setDisplaySize(48, TW)
-
-          // Flower patches
-          const flowerSpots: number[][] = [[100, 100], [180, 420], [600, 540], [820, 150], [340, 60], [760, 400]]
-          flowerSpots.forEach(([fx, fy]) => {
-            this.add.image(fx, fy, 'flowers').setDisplaySize(48, 48)
-          })
-
-          // Fountain at center
-          const fountain = this.add.image(cx, cy, 'fountain').setDisplaySize(90, 76).setDepth(cy - 30)
-          this.tweens.add({ targets: fountain, alpha: { from: 0.92, to: 1 }, duration: 1200, yoyo: true, repeat: -1, ease: 'Sine.InOut' })
-
-          // Animated water tiles (pond top-right)
-          const waterImages: Phaser.GameObjects.Image[] = []
-          for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) {
-            const wi = this.add.image(750 + i * 54, 340 + j * 40, 'water0').setDisplaySize(54, 40)
-            waterImages.push(wi)
-          }
-          let wf = 0
-          this.time.addEvent({ delay: 500, loop: true, callback: () => {
-            wf = (wf + 1) % 3
-            waterImages.forEach(wi => wi.setTexture(`water${wf}`))
-          }})
-
-          // ── Buildings ──────────────────────────────────────
-          const blds = [
-            { key: 'bld_bakery',  x: 240, y: 190, w: 168, h: 138, label: "Eleanor's Bakery" },
-            { key: 'bld_forge',   x: 750, y: 185, w: 158, h: 128, label: "Silas's Forge" },
-            { key: 'bld_cottage', x: 140, y: 490, w: 148, h: 126, label: "Maeve's Cottage" },
-            { key: 'bld_hall',    x: 510, y: 150, w: 208, h: 148, label: "Town Hall" },
-            { key: 'bld_library', x: 830, y: 460, w: 178, h: 136, label: "Library" },
-            { key: 'bld_tavern',  x: 490, y: 560, w: 158, h: 126, label: "Tavern" },
-          ]
-          blds.forEach(b => {
-            this.add.image(b.x, b.y, b.key).setDisplaySize(b.w, b.h).setDepth(b.y)
-            this.add.text(b.x, b.y + b.h / 2 + 2, b.label, {
-              fontSize: '10px', fontStyle: 'bold', color: '#f5f0e8',
-              stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
-            }).setOrigin(0.5, 0).setDepth(b.y + 1).setAlpha(0.85)
-          })
-
-          // ── Trees ──────────────────────────────────────────
-          const treeSpots: number[][] = [[60, 60], [960, 60], [60, 700], [960, 700], [60, 380], [960, 380], [400, 620], [580, 40], [200, 640], [840, 620]]
-          treeSpots.forEach(([tx, ty]) => {
-            this.add.image(tx, ty, 'tree').setDisplaySize(60, 80).setDepth(ty + 40)
-          })
-
-          // ── NPCs ──────────────────────────────────────────
+          // ── NPCs ─────────────────────────────────────────────────────
           npcs.forEach(npc => {
-            const pos = NPC_POS[npc.id] || { x: 400, y: 400 }
-            const spr = this.add.image(0, 0, `npc_${npc.id}_i`).setDisplaySize(40, 62)
-            const name = this.add.text(0, -40, npc.name, {
-              fontSize: '11px', fontStyle: 'bold', color: '#f5f0e8',
+            const tp = NPC_TILE[npc.id] || { tx: 5, ty: 9 }
+            const wx = tp.tx * TILE * ZOOM + (TILE * ZOOM) / 2
+            const wy = tp.ty * TILE * ZOOM + (TILE * ZOOM) / 2
+
+            const spr = this.add.image(0, 0, `npc_${npc.id}_i`).setScale(ZOOM)
+            const nameTag = this.add.text(0, -32, npc.name, {
+              fontSize: '6px', fontStyle: 'bold', color: '#f5f0e8',
               stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
-            }).setOrigin(0.5)
-            const role = this.add.text(0, -28, npc.role, {
-              fontSize: '9px', color: '#c9a84c',
+            }).setOrigin(0.5).setScale(ZOOM * 0.6)
+            const roleTag = this.add.text(0, -22, npc.role, {
+              fontSize: '5px', color: '#c9a84c',
               stroke: '#000000', strokeThickness: 2, fontFamily: 'Inter, sans-serif',
-            }).setOrigin(0.5)
+            }).setOrigin(0.5).setScale(ZOOM * 0.6)
 
-            const c = this.add.container(pos.x, pos.y, [spr, name, role])
-            c.setDepth(pos.y); c.setSize(44, 66); c.setInteractive()
+            const c = this.add.container(wx, wy, [spr, nameTag, roleTag])
+            c.setDepth(wy + 10).setSize(TILE * ZOOM, TILE * ZOOM * 2).setInteractive()
             c.on('pointerdown', () => onNpcInteract(npc))
+            c.on('pointerover', () => spr.setScale(ZOOM * 1.1))
+            c.on('pointerout',  () => spr.setScale(ZOOM))
             c.setData('spr', spr); c.setData('id', npc.id)
 
-            // Hover effect
-            c.on('pointerover', () => spr.setScale(1.08))
-            c.on('pointerout', () => spr.setScale(1))
-
-            // Subtle idle sway
             this.tweens.add({
-              targets: [name, role], y: `+=4`,
-              duration: 1600 + Math.random() * 600, yoyo: true, repeat: -1,
-              ease: 'Sine.InOut', delay: Math.random() * 1200,
+              targets: [nameTag, roleTag], y: `+=3`,
+              duration: 1400 + Math.random() * 600, yoyo: true, repeat: -1,
+              ease: 'Sine.InOut', delay: Math.random() * 1000,
             })
-
             this.npcMap.set(npc.id, c)
           })
 
-          // ── Player ──────────────────────────────────────────
-          const sx = character.position?.x ?? WW / 2, sy = character.position?.y ?? WH / 2
-          const pSpr = this.add.image(0, 0, 'p_idle').setDisplaySize(40, 62)
-          const pName = this.add.text(0, -40, character.name, {
-            fontSize: '11px', fontStyle: 'bold', color: '#e8c97a',
+          // ── Player ────────────────────────────────────────────────────
+          const sx = (character.position?.x ?? 9) * TILE * ZOOM
+          const sy = (character.position?.y ?? 9) * TILE * ZOOM
+          const pSpr = this.add.image(0, 0, 'p_idle').setScale(ZOOM)
+          const pName = this.add.text(0, -32, character.name, {
+            fontSize: '6px', fontStyle: 'bold', color: '#e8c97a',
             stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
-          }).setOrigin(0.5)
-          this.player = this.add.container(sx, sy, [pSpr, pName])
-          this.player.setDepth(sy)
-          this.player.setData('spr', pSpr)
+          }).setOrigin(0.5).setScale(ZOOM * 0.6)
 
-          // ── Camera ──────────────────────────────────────────
-          this.cameras.main.setBounds(0, 0, WW, WH)
-          this.cameras.main.startFollow(this.player, true, 0.09, 0.09)
-          this.cameras.main.setZoom(this.mobile ? 1.1 : 0.95)
+          this.player = this.add.container(sx, sy, [pSpr, pName])
+          this.player.setDepth(sy + 10).setData('spr', pSpr)
+
+          // ── Camera ────────────────────────────────────────────────────
+          this.cameras.main.setBounds(0, 0, COLS * TILE * ZOOM, ROWS * TILE * ZOOM)
+          this.cameras.main.startFollow(this.player, true, 0.1, 0.1)
 
           // Soft vignette
-          const vign = this.add.graphics().setScrollFactor(0).setDepth(9990)
           const { width: sw, height: sh } = this.scale
-          vign.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0.55, 0.55, 0, 0)
-          vign.fillRect(0, 0, sw, sh * 0.12)
-          const vign2 = this.add.graphics().setScrollFactor(0).setDepth(9990)
-          vign2.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0, 0, 0.4, 0.4)
-          vign2.fillRect(0, sh * 0.88, sw, sh * 0.12)
+          const v1 = this.add.graphics().setScrollFactor(0).setDepth(9990)
+          v1.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0.5, 0.5, 0, 0)
+          v1.fillRect(0, 0, sw, sh * 0.1)
+          const v2 = this.add.graphics().setScrollFactor(0).setDepth(9990)
+          v2.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0, 0, 0.5, 0.5)
+          v2.fillRect(0, sh * 0.9, sw, sh * 0.1)
 
-          // ── Interaction hint ──────────────────────────────────
+          // ── Hint ──────────────────────────────────────────────────────
           this.hint = this.add.container(0, 0).setVisible(false).setDepth(9985)
           const hBg = this.add.graphics()
           hBg.fillStyle(0x111009, 0.85)
-          hBg.fillRoundedRect(-38, -13, 76, 26, 6)
-          hBg.lineStyle(1, 0xc9a84c, 0.7)
-          hBg.strokeRoundedRect(-38, -13, 76, 26, 6)
-          const hTxt = this.add.text(0, 0, this.mobile ? 'Tap to talk' : '[E] Talk', {
+          hBg.fillRoundedRect(-40, -14, 80, 28, 6)
+          hBg.lineStyle(1.5, 0xc9a84c, 0.8)
+          hBg.strokeRoundedRect(-40, -14, 80, 28, 6)
+          const hTxt = this.add.text(0, 0, isMobile ? 'Tap to talk' : '[E] Talk', {
             fontSize: '10px', fontStyle: 'bold', color: '#c9a84c', fontFamily: 'Inter, sans-serif',
           }).setOrigin(0.5)
           this.hint.add([hBg, hTxt])
 
-          // ── Input ──────────────────────────────────────────
+          // ── Input ─────────────────────────────────────────────────────
+          this.input.keyboard!.disableGlobalCapture()
           this.cursors = this.input.keyboard!.createCursorKeys()
-          this.wasd = this.input.keyboard!.addKeys({ up: 'W', down: 'S', left: 'A', right: 'D' })
-          this.eKey = this.input.keyboard!.addKey('E')
+          this.wasd = this.input.keyboard!.addKeys({ up: 'W', down: 'S', left: 'A', right: 'D' }) as any
 
-          // Reliable E-key handler via event listener (not JustDown in update loop)
           this.input.keyboard!.on('keydown-E', () => {
             if (!this.input.keyboard!.enabled) return
             if (this.nearbyNpc) {
@@ -500,19 +305,13 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
             }
           })
 
-          // Completely disable Phaser keyboard when any HTML input/textarea is focused
-          // This is the only reliable way to allow free typing in chat
           const onFocusIn = (e: FocusEvent) => {
             const tag = (e.target as HTMLElement)?.tagName
-            if (tag === 'INPUT' || tag === 'TEXTAREA') {
-              this.input.keyboard!.enabled = false
-            }
+            if (tag === 'INPUT' || tag === 'TEXTAREA') this.input.keyboard!.enabled = false
           }
           const onFocusOut = (e: FocusEvent) => {
             const tag = (e.target as HTMLElement)?.tagName
-            if (tag === 'INPUT' || tag === 'TEXTAREA') {
-              this.input.keyboard!.enabled = true
-            }
+            if (tag === 'INPUT' || tag === 'TEXTAREA') this.input.keyboard!.enabled = true
           }
           document.addEventListener('focusin', onFocusIn)
           document.addEventListener('focusout', onFocusOut)
@@ -521,59 +320,56 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
             document.removeEventListener('focusout', onFocusOut)
           })
 
-          // ── Mobile joystick ──────────────────────────────────
-          if (this.mobile) {
-            const { height: CH } = this.scale
-            this.jBase = this.add.circle(75, CH - 95, 48, 0x000000, 0.5)
+          // ── Mobile joystick ───────────────────────────────────────────
+          if (isMobile) {
+            const CH = this.scale.height
+            this.jBase = this.add.circle(70, CH - 90, 45, 0x000000, 0.5)
               .setStrokeStyle(2, 0xc9a84c, 0.4).setScrollFactor(0).setDepth(9995)
-            this.jThumb = this.add.circle(75, CH - 95, 22, 0xc9a84c, 0.6)
+            this.jThumb = this.add.circle(70, CH - 90, 20, 0xc9a84c, 0.6)
               .setScrollFactor(0).setDepth(9996)
 
             this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-              if (p.x < 170) this.joystick = { on: true, x0: p.x, y0: p.y, cx: p.x, cy: p.y }
+              if (p.x < 160) this.joystick = { on: true, x0: p.x, y0: p.y, cx: p.x, cy: p.y }
             })
             this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
               if (this.joystick.on) { this.joystick.cx = p.x; this.joystick.cy = p.y }
             })
             this.input.on('pointerup', () => {
               this.joystick.on = false
-              const CH2 = this.scale.height
-              this.jThumb?.setPosition(75, CH2 - 95)
+              this.jThumb?.setPosition(70, this.scale.height - 90)
             })
           }
         }
 
         update(_: number, delta: number) {
-          let vx = 0, vy = 0
           const spd = 160
+          let vx = 0, vy = 0
 
-          // keyboard.enabled is false when chat input is focused — no extra check needed
-          if (this.cursors.left.isDown  || this.wasd.left.isDown)  vx = -spd
-          else if (this.cursors.right.isDown || this.wasd.right.isDown) vx = spd
-          if (this.cursors.up.isDown    || this.wasd.up.isDown)    vy = -spd
-          else if (this.cursors.down.isDown  || this.wasd.down.isDown)  vy = spd
+          if (this.cursors.left.isDown  || (this.wasd as any).left.isDown)  vx = -spd
+          else if (this.cursors.right.isDown || (this.wasd as any).right.isDown) vx = spd
+          if (this.cursors.up.isDown    || (this.wasd as any).up.isDown)    vy = -spd
+          else if (this.cursors.down.isDown  || (this.wasd as any).down.isDown)  vy = spd
 
-          if (this.mobile && this.joystick.on) {
+          if (this.joystick?.on) {
             const dx = this.joystick.cx - this.joystick.x0
             const dy = this.joystick.cy - this.joystick.y0
             const dist = Math.sqrt(dx * dx + dy * dy)
-            const max = 38
+            const max = 36
             if (dist > 6) {
               const cl = Math.min(dist, max)
               vx = (dx / dist) * spd * (cl / max)
               vy = (dy / dist) * spd * (cl / max)
-              this.jThumb?.setPosition(75 + (dx / dist) * cl, this.scale.height - 95 + (dy / dist) * cl)
+              this.jThumb?.setPosition(70 + (dx / dist) * cl, this.scale.height - 90 + (dy / dist) * cl)
             }
           }
 
           if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707 }
-
           const dt = delta / 1000
-          this.player.x = Phaser.Math.Clamp(this.player.x + vx * dt, 30, this.WW - 30)
-          this.player.y = Phaser.Math.Clamp(this.player.y + vy * dt, 30, this.WH - 30)
-          this.player.setDepth(this.player.y)
+          const COLS = 24, ROWS = 18, TILE = 16, ZOOM = 3
+          this.player.x = Phaser.Math.Clamp(this.player.x + vx * dt, TILE * ZOOM, (COLS - 1) * TILE * ZOOM)
+          this.player.y = Phaser.Math.Clamp(this.player.y + vy * dt, TILE * ZOOM, (ROWS - 1) * TILE * ZOOM)
+          this.player.setDepth(this.player.y + 10)
 
-          // Walk animation
           const moving = vx !== 0 || vy !== 0
           const spr = this.player.getData('spr') as Phaser.GameObjects.Image
           if (moving) {
@@ -585,7 +381,7 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
           }
 
           // NPC proximity
-          let closest: string | null = null, minD = 90
+          let closest: string | null = null, minD = 80
           this.npcMap.forEach((c, id) => {
             const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, c.x, c.y)
             if (d < minD) { minD = d; closest = id }
@@ -593,11 +389,10 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
           this.nearbyNpc = closest
           if (closest) {
             const c = this.npcMap.get(closest)!
-            this.hint.setPosition(c.x, c.y - 60).setVisible(true)
+            this.hint.setPosition(c.x, c.y - 55).setVisible(true)
           } else {
             this.hint.setVisible(false)
           }
-
         }
       }
 
@@ -605,11 +400,15 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
         type: Phaser.AUTO,
         width: window.innerWidth,
         height: window.innerHeight,
-        backgroundColor: '#5c9e3a',
         parent: containerRef.current!,
+        backgroundColor: '#5c9e3a',
         scene: [TownScene],
         scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
-        render: { antialias: true, pixelArt: false, roundPixels: false },
+        render: {
+          antialias: false,     // OFF for pixel art — critical
+          pixelArt: true,       // nearest-neighbor scaling
+          roundPixels: true,
+        },
       })
 
       gameRef.current = game
