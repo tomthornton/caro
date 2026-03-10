@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { NPCS } from '@/lib/npcs'
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-
 export async function POST(req: NextRequest, { params }: { params: Promise<{ npcId: string }> }) {
   const { npcId } = await params
   const npc = NPCS[npcId]
@@ -18,6 +16,7 @@ ${memoryContext ? `What you remember about this person from past conversations: 
 The player's name is ${characterName}.`
 
   try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
