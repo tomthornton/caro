@@ -5,9 +5,14 @@ import dynamicImport from 'next/dynamic'
 import { useEffect, useRef, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase, Game, Character } from '@/lib/supabase'
-import { NPC_LIST, NpcSoul } from '@/lib/npcs'
+import { NPC_LIST, NpcSoul, NPCS } from '@/lib/npcs'
+import type { BuildingEntry } from '@/components/game/GameCanvas'
+import type { Item } from '@/components/game/InventoryPanel'
+import { STARTER_ITEMS } from '@/components/game/InventoryPanel'
 
-const GameCanvas = dynamicImport(() => import('@/components/game/GameCanvas'), { ssr: false })
+const GameCanvas       = dynamicImport(() => import('@/components/game/GameCanvas'),       { ssr: false })
+const BuildingInterior = dynamicImport(() => import('@/components/game/BuildingInterior'), { ssr: false })
+const InventoryPanel   = dynamicImport(() => import('@/components/game/InventoryPanel'),   { ssr: false })
 
 type Msg = { role: 'user' | 'assistant'; content: string }
 
@@ -24,6 +29,9 @@ export default function GamePage() {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [activeBuilding, setActiveBuilding] = useState<BuildingEntry | null>(null)
+  const [inventoryOpen, setInventoryOpen] = useState(false)
+  const [inventory, setInventory] = useState<Item[]>(STARTER_ITEMS)
   const messagesRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatNpcRef = useRef<NpcSoul | null>(null)
@@ -40,7 +48,12 @@ export default function GamePage() {
       ])
       if (!c) { router.push(`/game/${gameId}/character`); return }
       if (!g) { router.push('/dashboard'); return }
-      setGame(g); setCharacter(c); setLoading(false)
+      setGame(g); setCharacter(c)
+      // Load inventory from character record
+      if (c.inventory && Array.isArray(c.inventory) && (c.inventory as any[]).length > 0) {
+        setInventory(c.inventory as Item[])
+      }
+      setLoading(false)
     }
     load()
   }, [gameId, router])
@@ -160,8 +173,34 @@ export default function GamePage() {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: '#0a0908', overflow: 'hidden' }}>
-      {character && (
-        <GameCanvas character={character} npcs={NPC_LIST} onNpcInteract={openChat} />
+      {/* Town world — hidden when inside a building */}
+      {character && !activeBuilding && (
+        <GameCanvas
+          character={character}
+          npcs={NPC_LIST}
+          onNpcInteract={openChat}
+          onEnterBuilding={setActiveBuilding}
+        />
+      )}
+
+      {/* Building interior */}
+      {character && activeBuilding && (
+        <BuildingInterior
+          building={activeBuilding}
+          characterName={character.name}
+          npc={activeBuilding.npcId ? NPCS[activeBuilding.npcId] : undefined}
+          onExit={() => setActiveBuilding(null)}
+          onNpcInteract={openChat}
+        />
+      )}
+
+      {/* Inventory panel */}
+      {inventoryOpen && (
+        <InventoryPanel
+          items={inventory}
+          gold={character?.gold ?? 0}
+          onClose={() => setInventoryOpen(false)}
+        />
       )}
 
       {/* ── HUD ── */}
@@ -183,6 +222,11 @@ export default function GamePage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 99, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.2)', fontSize: 12, color: 'rgba(245,240,232,0.7)', fontWeight: 600 }}>
             🪙 {character?.gold}
           </div>
+          <button onClick={() => setInventoryOpen(true)}
+            style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.25)', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            title="Inventory [I]">
+            🎒
+          </button>
           <button onClick={() => setMenuOpen(true)}
             style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.25)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 4 }}>
             <div style={{ width: 14, height: 1.5, background: '#c9a84c', borderRadius: 99 }} />
