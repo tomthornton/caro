@@ -224,6 +224,8 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
             this.makeCharSprite(`npc_${npc.id}_w`, c.body, c.hair, c.shirt, 1)
           })
 
+          const textRes = Math.ceil(window.devicePixelRatio * 2)
+
           // ── NPCs ─────────────────────────────────────────────────────
           npcs.forEach(npc => {
             const tp = NPC_TILE[npc.id] || { tx: 5, ty: 9 }
@@ -231,14 +233,14 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
             const wy = tp.ty * TILE * ZOOM + (TILE * ZOOM) / 2
 
             const spr = this.add.image(0, 0, `npc_${npc.id}_i`).setScale(ZOOM)
-            const nameTag = this.add.text(0, -32, npc.name, {
-              fontSize: '6px', fontStyle: 'bold', color: '#f5f0e8',
+            const nameTag = this.add.text(0, -36, npc.name, {
+              fontSize: '11px', fontStyle: 'bold', color: '#f5f0e8',
               stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
-            }).setOrigin(0.5).setScale(ZOOM * 0.6)
-            const roleTag = this.add.text(0, -22, npc.role, {
-              fontSize: '5px', color: '#c9a84c',
+            }).setOrigin(0.5).setResolution(textRes)
+            const roleTag = this.add.text(0, -23, npc.role, {
+              fontSize: '9px', color: '#c9a84c',
               stroke: '#000000', strokeThickness: 2, fontFamily: 'Inter, sans-serif',
-            }).setOrigin(0.5).setScale(ZOOM * 0.6)
+            }).setOrigin(0.5).setResolution(textRes)
 
             const c = this.add.container(wx, wy, [spr, nameTag, roleTag])
             c.setDepth(wy + 10).setSize(TILE * ZOOM, TILE * ZOOM * 2).setInteractive()
@@ -259,10 +261,10 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
           const sx = (character.position?.x ?? 9) * TILE * ZOOM
           const sy = (character.position?.y ?? 9) * TILE * ZOOM
           const pSpr = this.add.image(0, 0, 'p_idle').setScale(ZOOM)
-          const pName = this.add.text(0, -32, character.name, {
-            fontSize: '6px', fontStyle: 'bold', color: '#e8c97a',
+          const pName = this.add.text(0, -36, character.name, {
+            fontSize: '11px', fontStyle: 'bold', color: '#e8c97a',
             stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
-          }).setOrigin(0.5).setScale(ZOOM * 0.6)
+          }).setOrigin(0.5).setResolution(textRes)
 
           this.player = this.add.container(sx, sy, [pSpr, pName])
           this.player.setDepth(sy + 10).setData('spr', pSpr)
@@ -289,7 +291,7 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
           hBg.strokeRoundedRect(-40, -14, 80, 28, 6)
           const hTxt = this.add.text(0, 0, isMobile ? 'Tap to talk' : '[E] Talk', {
             fontSize: '10px', fontStyle: 'bold', color: '#c9a84c', fontFamily: 'Inter, sans-serif',
-          }).setOrigin(0.5)
+          }).setOrigin(0.5).setResolution(textRes)
           this.hint.add([hBg, hTxt])
 
           // ── Input ─────────────────────────────────────────────────────
