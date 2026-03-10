@@ -487,9 +487,22 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
           this.hint.add([hBg, hTxt])
 
           // ── Input ──────────────────────────────────────────
+          // Prevent Phaser from swallowing key events (fixes Space in chat input)
+          this.input.keyboard!.disableGlobalCapture()
+
           this.cursors = this.input.keyboard!.createCursorKeys()
           this.wasd = this.input.keyboard!.addKeys({ up: 'W', down: 'S', left: 'A', right: 'D' })
           this.eKey = this.input.keyboard!.addKey('E')
+
+          // Reliable E-key handler via event listener (not JustDown in update loop)
+          this.input.keyboard!.on('keydown-E', () => {
+            const el = document.activeElement
+            if (el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA') return
+            if (this.nearbyNpc) {
+              const npc = npcs.find(n => n.id === this.nearbyNpc)
+              if (npc) onNpcInteract(npc)
+            }
+          })
 
           // ── Mobile joystick ──────────────────────────────────
           if (this.mobile) {
@@ -573,10 +586,6 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
             this.hint.setVisible(false)
           }
 
-          if (!typing && Phaser.Input.Keyboard.JustDown(this.eKey) && this.nearbyNpc) {
-            const npc = npcs.find(n => n.id === this.nearbyNpc)
-            if (npc) onNpcInteract(npc)
-          }
         }
       }
 
