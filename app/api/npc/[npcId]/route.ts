@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { NPCS } from '@/lib/npcs'
-import { buildSystemPrompt, evaluateConversationImpact, DEFAULT_STATE, NpcDynamicState } from '@/lib/npc-prompt'
+import { buildSystemPrompt, getOpeningScenario, evaluateConversationImpact, DEFAULT_STATE, NpcDynamicState } from '@/lib/npc-prompt'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -87,11 +87,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ npc
 
     const response = await client.messages.create({
       model: 'claude-haiku-4-5',
-      max_tokens: 250,
+      max_tokens: 320,
       system: systemPrompt,
       messages: (messages.length === 0
-        ? [{ role: 'user', content: `[${npc.name} notices the player approaching and speaks first]` }]
-        : messages.slice(-12)
+        ? [{ role: 'user', content: getOpeningScenario(npcId) }]
+        : messages.slice(-14)
       ).map((m: { role: string; content: string }) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
@@ -104,11 +104,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ npc
   } catch {
     // Fallback: character-accurate first lines
     const fallbacks: Record<string, string> = {
-      eleanor: `Well, honey, look at you — new to Caro, I can tell. I'm Eleanor. Here, take one of these rolls before they cool. Homemade. Have you eaten today?`,
-      silas:   `${characterName || 'Stranger'}. You're new. Silas. The forge is mine. If you need something, come back when you know what it is.`,
-      maeve:   `I thought the air felt different this morning. Here you are. Welcome to Caro — though I suspect you already know it feels different here. Most people do, when they first arrive.`,
-      caleb:   `Finally — a face I haven't known my whole life. I'm Caleb. Yes, the mayor's son, you'll hear that soon enough. What brings you to our very distinguished corner of nowhere?`,
-      ruth:    `Oh, wonderful. A new arrival. I'm Ruth — the librarian, which means I make it my business to know everyone in Caro. I already have questions. Where are you from, exactly?`,
+      eleanor: `You look tired, honey. Sit down. I've got bread still warm — you want some?`,
+      silas:   `${characterName || 'Stranger'}.`,
+      maeve:   `I had a feeling someone would come by today. Sit down. I'll put the kettle on.`,
+      caleb:   `Finally. A face I haven't known my whole life. Tell me something interesting.`,
+      ruth:    `You came in on the eastern road. Most people don't. I have questions — is that alright?`,
     }
     return NextResponse.json({ reply: fallbacks[npcId] || `Hello. Welcome to Caro.` })
   }
