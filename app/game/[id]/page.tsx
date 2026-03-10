@@ -267,7 +267,7 @@ export default function GamePage() {
                 ref={inputRef}
                 value={input}
                 onChange={e => setInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && send()}
+                onKeyDown={e => { e.stopPropagation(); if (e.key === 'Enter') send() }}
                 placeholder={`Talk to ${chatNpc.name}...`}
                 style={{
                   flex: 1, background: '#1a1814', border: '1px solid #2e2a22', borderRadius: 12,
