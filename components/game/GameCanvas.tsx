@@ -487,21 +487,38 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
           this.hint.add([hBg, hTxt])
 
           // ── Input ──────────────────────────────────────────
-          // Prevent Phaser from swallowing key events (fixes Space in chat input)
-          this.input.keyboard!.disableGlobalCapture()
-
           this.cursors = this.input.keyboard!.createCursorKeys()
           this.wasd = this.input.keyboard!.addKeys({ up: 'W', down: 'S', left: 'A', right: 'D' })
           this.eKey = this.input.keyboard!.addKey('E')
 
           // Reliable E-key handler via event listener (not JustDown in update loop)
           this.input.keyboard!.on('keydown-E', () => {
-            const el = document.activeElement
-            if (el?.tagName === 'INPUT' || el?.tagName === 'TEXTAREA') return
+            if (!this.input.keyboard!.enabled) return
             if (this.nearbyNpc) {
               const npc = npcs.find(n => n.id === this.nearbyNpc)
               if (npc) onNpcInteract(npc)
             }
+          })
+
+          // Completely disable Phaser keyboard when any HTML input/textarea is focused
+          // This is the only reliable way to allow free typing in chat
+          const onFocusIn = (e: FocusEvent) => {
+            const tag = (e.target as HTMLElement)?.tagName
+            if (tag === 'INPUT' || tag === 'TEXTAREA') {
+              this.input.keyboard!.enabled = false
+            }
+          }
+          const onFocusOut = (e: FocusEvent) => {
+            const tag = (e.target as HTMLElement)?.tagName
+            if (tag === 'INPUT' || tag === 'TEXTAREA') {
+              this.input.keyboard!.enabled = true
+            }
+          }
+          document.addEventListener('focusin', onFocusIn)
+          document.addEventListener('focusout', onFocusOut)
+          this.events.once('destroy', () => {
+            document.removeEventListener('focusin', onFocusIn)
+            document.removeEventListener('focusout', onFocusOut)
           })
 
           // ── Mobile joystick ──────────────────────────────────
@@ -527,19 +544,14 @@ export default function GameCanvas({ character, npcs, onNpcInteract }: Props) {
         }
 
         update(_: number, delta: number) {
-          // ── FIX: don't process keyboard when HTML input is focused ──
-          const active = document.activeElement
-          const typing = active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA'
-
           let vx = 0, vy = 0
           const spd = 160
 
-          if (!typing) {
-            if (this.cursors.left.isDown  || this.wasd.left.isDown)  vx = -spd
-            else if (this.cursors.right.isDown || this.wasd.right.isDown) vx = spd
-            if (this.cursors.up.isDown    || this.wasd.up.isDown)    vy = -spd
-            else if (this.cursors.down.isDown  || this.wasd.down.isDown)  vy = spd
-          }
+          // keyboard.enabled is false when chat input is focused — no extra check needed
+          if (this.cursors.left.isDown  || this.wasd.left.isDown)  vx = -spd
+          else if (this.cursors.right.isDown || this.wasd.right.isDown) vx = spd
+          if (this.cursors.up.isDown    || this.wasd.up.isDown)    vy = -spd
+          else if (this.cursors.down.isDown  || this.wasd.down.isDown)  vy = spd
 
           if (this.mobile && this.joystick.on) {
             const dx = this.joystick.cx - this.joystick.x0
