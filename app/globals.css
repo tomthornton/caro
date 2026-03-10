@@ -4,49 +4,25 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --color-bg:      #0e0c0a;
-  --color-surface: #161310;
-  --color-card:    #1f1a15;
-  --color-border:  #3a3020;
-  --color-gold:    #c9a84c;
-  --color-gold-light: #e8c97a;
-  --color-text:    #f0e6d0;
-  --color-muted:   rgba(200,170,100,0.5);
-  --font-display:  'Cinzel', serif;
-  --font-body:     'Crimson Text', Georgia, serif;
-  --font-ui:       'Inter', system-ui, sans-serif;
-}
-
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
 html, body {
-  margin: 0; padding: 0;
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: var(--font-body);
+  margin: 0;
+  padding: 0;
+  background: #0e0c0a;
+  color: #f0e6d0;
+  font-family: 'Crimson Text', Georgia, serif;
   height: 100%;
   overscroll-behavior: none;
 }
 
-.font-display { font-family: var(--font-display); }
-.font-body    { font-family: var(--font-body); }
-.font-ui      { font-family: var(--font-ui); }
+.font-display { font-family: 'Cinzel', serif; }
+.font-body    { font-family: 'Crimson Text', Georgia, serif; }
+.font-ui      { font-family: 'Inter', system-ui, sans-serif; }
 
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Parchment glow */
 .glow-gold {
-  text-shadow: 0 0 30px rgba(201,168,76,0.4), 0 0 60px rgba(201,168,76,0.15);
-}
-
-/* Vignette overlay */
-.vignette::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.6) 100%);
-  pointer-events: none;
-  z-index: 0;
+  text-shadow: 0 0 30px rgba(201,168,76,0.5), 0 0 70px rgba(201,168,76,0.2);
 }
