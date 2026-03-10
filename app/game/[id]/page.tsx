@@ -1,14 +1,16 @@
 'use client'
 export const dynamic = 'force-dynamic'
 
-
-import { useEffect, useState, useRef } from 'react'
+import dynamicImport from 'next/dynamic'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase, Game, Character } from '@/lib/supabase'
 import { NPC_LIST, NpcSoul } from '@/lib/npcs'
-import dynamicImport from 'next/dynamic'
+
 const GameCanvas = dynamicImport(() => import('@/components/game/GameCanvas'), { ssr: false })
-type ChatMessage = { role: 'user' | 'assistant'; content: string }
+
+type Msg = { role: 'user' | 'assistant'; content: string }
+
 export default function GamePage() {
   const router = useRouter()
   const { id: gameId } = useParams<{ id: string }>()
@@ -16,190 +18,282 @@ export default function GamePage() {
   const [character, setCharacter] = useState<Character | null>(null)
   const [loading, setLoading] = useState(true)
   const [chatNpc, setChatNpc] = useState<NpcSoul | null>(null)
-  const [messages, setMessages] = useState<ChatMessage[]>([])
+  const [messages, setMessages] = useState<Msg[]>([])
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
+  const messagesRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
   useEffect(() => {
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { router.push('/'); return }
-      const [{ data: gameData }, { data: charData }] = await Promise.all([
+      const [{ data: g }, { data: c }] = await Promise.all([
         supabase.from('games').select('*').eq('id', gameId).single(),
         supabase.from('characters').select('*').eq('game_id', gameId).eq('user_id', session.user.id).single(),
       ])
-      if (!charData) { router.push(`/game/${gameId}/character`); return }
-      if (!gameData) { router.push('/dashboard'); return }
-      setGame(gameData)
-      setCharacter(charData)
-      setLoading(false)
+      if (!c) { router.push(`/game/${gameId}/character`); return }
+      if (!g) { router.push('/dashboard'); return }
+      setGame(g); setCharacter(c); setLoading(false)
     }
     load()
   }, [gameId, router])
+
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    if (messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight
+    }
+  }, [messages, sending])
+
   const openChat = async (npc: NpcSoul) => {
     setChatNpc(npc)
-    // Load existing chat history
-    const { data } = await supabase
-      .from('chat_logs')
-      .select('messages')
-      .eq('game_id', gameId)
-      .eq('npc_id', npc.id)
-      .single()
+    setSending(true)
+    const { data } = await supabase.from('chat_logs').select('messages')
+      .eq('game_id', gameId).eq('npc_id', npc.id).single()
+
     if (data?.messages?.length) {
       setMessages(data.messages)
+      setSending(false)
     } else {
-      // First meeting — trigger intro message
-      setSending(true)
       const res = await fetch(`/api/npc/${npc.id}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: [], characterName: character?.name, characterStats: character?.stats, memoryContext: null }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messages: [], characterName: character?.name, characterStats: character?.stats }),
       })
       const { reply } = await res.json()
-      const initMessages: ChatMessage[] = [{ role: 'assistant', content: reply }]
-      setMessages(initMessages)
-      await saveChat(npc.id, initMessages)
+      const init: Msg[] = [{ role: 'assistant', content: reply }]
+      setMessages(init)
+      await saveChat(npc.id, init)
       setSending(false)
     }
+    setTimeout(() => inputRef.current?.focus(), 300)
   }
-  const closeChat = () => {
-    setChatNpc(null)
-    setMessages([])
-    setInput('')
-  }
-  const saveChat = async (npcId: string, msgs: ChatMessage[]) => {
+
+  const closeChat = () => { setChatNpc(null); setMessages([]); setInput('') }
+
+  const saveChat = async (npcId: string, msgs: Msg[]) => {
+    const { data: { session } } = await supabase.auth.getSession()
     await supabase.from('chat_logs').upsert({
-      game_id: gameId,
-      npc_id: npcId,
-      user_id: (await supabase.auth.getSession()).data.session?.user.id,
-      messages: msgs,
+      game_id: gameId, npc_id: npcId, user_id: session?.user.id, messages: msgs,
     }, { onConflict: 'game_id,npc_id,user_id' })
   }
-  const sendMessage = async () => {
+
+  const send = async () => {
     if (!input.trim() || !chatNpc || sending) return
-    const userMsg: ChatMessage = { role: 'user', content: input.trim() }
-    const newMessages = [...messages, userMsg]
-    setMessages(newMessages)
-    setInput('')
-    setSending(true)
+    const userMsg: Msg = { role: 'user', content: input.trim() }
+    const next = [...messages, userMsg]
+    setMessages(next); setInput(''); setSending(true)
     const res = await fetch(`/api/npc/${chatNpc.id}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        messages: newMessages,
-        characterName: character?.name,
-        characterStats: character?.stats,
-        memoryContext: null,
-      }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: next, characterName: character?.name, characterStats: character?.stats }),
     })
     const { reply } = await res.json()
-    const finalMessages: ChatMessage[] = [...newMessages, { role: 'assistant', content: reply }]
-    setMessages(finalMessages)
-    await saveChat(chatNpc.id, finalMessages)
+    const final: Msg[] = [...next, { role: 'assistant', content: reply }]
+    setMessages(final)
+    await saveChat(chatNpc.id, final)
     setSending(false)
   }
+
+  const STAT_LABELS: Record<string, string> = {
+    strength: '💪', intellect: '🧠', charisma: '✨',
+    cooking: '🍳', crafting: '⚒️', wisdom: '🕯️', reputation: '⭐',
+  }
+
   if (loading) return (
-    <div className="min-h-screen bg-bg flex items-center justify-center">
-      <div className="w-8 h-8 border-2 border-gold/30 border-t-gold rounded-full animate-spin" />
+    <div style={{ position: 'fixed', inset: 0, background: '#0a0908', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 28, height: 28, border: '2px solid rgba(201,168,76,0.2)', borderTop: '2px solid #c9a84c', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   )
+
   return (
-    <div className="fixed inset-0 bg-bg overflow-hidden" style={{ fontFamily: 'var(--font-ui)' }}>
+    <div style={{ position: 'fixed', inset: 0, background: '#0a0908', overflow: 'hidden' }}>
+
       {/* Game canvas */}
       {character && (
-        <GameCanvas
-          gameId={gameId}
-          character={character}
-          npcs={NPC_LIST}
-          onNpcInteract={openChat}
-        />
+        <GameCanvas character={character} npcs={NPC_LIST} onNpcInteract={openChat} />
       )}
-      {/* HUD — top bar */}
-      <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-4 py-3 pointer-events-none"
-        style={{ background: 'linear-gradient(to bottom, rgba(14,12,10,0.85), transparent)' }}>
-        <div className="pointer-events-auto">
-          <button onClick={() => router.push('/dashboard')} className="text-xs font-ui text-parchment/30 hover:text-parchment/60">
-            ← {game?.name}
+
+      {/* ── HUD ── */}
+      {/* Top bar */}
+      <div style={{
+        position: 'absolute', top: 0, left: 0, right: 0,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '12px 16px',
+        background: 'linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%)',
+        pointerEvents: 'none',
+      }}>
+        <div style={{ pointerEvents: 'auto' }}>
+          <span style={{ fontFamily: 'Cinzel, serif', fontWeight: 900, fontSize: 18, color: '#c9a84c', letterSpacing: '0.08em' }}>
+            {game?.name}
+          </span>
+          <span style={{ fontSize: 11, color: 'rgba(245,240,232,0.4)', marginLeft: 10, fontWeight: 500 }}>Day {game?.day}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 8, pointerEvents: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 99, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.2)', fontSize: 12, color: 'rgba(245,240,232,0.7)', fontWeight: 600 }}>
+            ⚡ {character?.energy}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 99, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.2)', fontSize: 12, color: 'rgba(245,240,232,0.7)', fontWeight: 600 }}>
+            🪙 {character?.gold}
+          </div>
+          {/* Menu button */}
+          <button onClick={() => setMenuOpen(true)}
+            style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.25)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 4 }}>
+            <div style={{ width: 14, height: 1.5, background: '#c9a84c', borderRadius: 99 }} />
+            <div style={{ width: 14, height: 1.5, background: '#c9a84c', borderRadius: 99 }} />
+            <div style={{ width: 14, height: 1.5, background: '#c9a84c', borderRadius: 99 }} />
           </button>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-ui text-gold/60">Day {game?.day}</span>
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full" style={{ background: 'rgba(14,12,10,0.7)', border: '1px solid rgba(201,168,76,0.2)' }}>
-            <span className="text-xs">⚡</span>
-            <span className="text-xs font-bold text-parchment/70">{character?.energy}/{character?.max_energy}</span>
-          </div>
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full" style={{ background: 'rgba(14,12,10,0.7)', border: '1px solid rgba(201,168,76,0.2)' }}>
-            <span className="text-xs">🪙</span>
-            <span className="text-xs font-bold text-parchment/70">{character?.gold}</span>
+      </div>
+
+      {/* Move hint bottom center */}
+      {!chatNpc && (
+        <div style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none' }}>
+          <div style={{ fontSize: 11, color: 'rgba(245,240,232,0.3)', background: 'rgba(0,0,0,0.5)', padding: '6px 14px', borderRadius: 99, whiteSpace: 'nowrap', fontWeight: 500 }}>
+            WASD or joystick · Walk up to villagers to talk
           </div>
         </div>
-      </div>
-      {/* NPC interaction hint */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 pointer-events-none">
-        <p className="text-xs font-ui text-parchment/25 text-center bg-bg/50 px-4 py-2 rounded-full backdrop-blur-sm">
-          Walk up to a villager and press E or tap to talk
-        </p>
-      </div>
-      {/* Chat modal */}
-      {chatNpc && (
-        <div className="absolute inset-0 flex flex-col justify-end" style={{ background: 'rgba(14,12,10,0.7)', backdropFilter: 'blur(4px)' }}>
-          <div className="bg-surface border-t border-border flex flex-col" style={{ maxHeight: '70vh' }}>
-            {/* NPC header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">{chatNpc.emoji}</span>
-                <div>
-                  <p className="font-display text-sm text-gold tracking-wide">{chatNpc.name}</p>
-                  <p className="text-xs font-ui text-parchment/35">{chatNpc.role}</p>
-                </div>
-              </div>
-              <button onClick={closeChat} className="text-parchment/30 hover:text-parchment/60 text-xl leading-none">✕</button>
+      )}
+
+      {/* ── GAME MENU ── */}
+      {menuOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}
+          onClick={() => setMenuOpen(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ width: 280, background: '#111009', borderLeft: '1px solid #2e2a22', height: '100%', padding: '24px 20px', display: 'flex', flexDirection: 'column', gap: 0 }}>
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
+              <span style={{ fontFamily: 'Cinzel, serif', fontSize: 16, fontWeight: 900, color: '#c9a84c', letterSpacing: '0.08em' }}>MENU</span>
+              <button onClick={() => setMenuOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(245,240,232,0.4)', fontSize: 20, lineHeight: 1 }}>✕</button>
             </div>
-            {/* Messages */}
-            <div className="flex-1 overflow-y-auto no-scrollbar px-5 py-4 space-y-3">
-              {messages.map((m, i) => (
-                <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className="max-w-[80%] px-4 py-3 rounded-2xl"
-                    style={m.role === 'user'
-                      ? { background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.25)' }
-                      : { background: 'rgba(31,26,21,1)', border: '1px solid rgba(58,48,32,0.8)' }
-                    }>
-                    <p className="text-sm font-body leading-relaxed text-parchment/85">{m.content}</p>
-                  </div>
-                </div>
-              ))}
-              {sending && (
-                <div className="flex justify-start">
-                  <div className="px-4 py-3 rounded-2xl" style={{ background: '#1f1a15', border: '1px solid #3a3020' }}>
-                    <div className="flex gap-1.5 items-center h-4">
-                      {[0, 1, 2].map(i => (
-                        <div key={i} className="w-1.5 h-1.5 rounded-full bg-gold/40 animate-bounce"
-                          style={{ animationDelay: `${i * 0.15}s` }} />
-                      ))}
+
+            {/* Character card */}
+            <div style={{ background: '#1a1814', border: '1px solid #2e2a22', borderRadius: 14, padding: '16px', marginBottom: 20 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#f5f0e8', marginBottom: 2 }}>{character?.name}</div>
+              <div style={{ fontSize: 11, color: '#c9a84c', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>{character?.archetype}</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                {character && Object.entries(character.stats).map(([k, v]) => (
+                  <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 13 }}>{STAT_LABELS[k] || '•'}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', gap: 2 }}>
+                        {Array.from({ length: 10 }).map((_, i) => (
+                          <div key={i} style={{ flex: 1, height: 3, borderRadius: 99, background: i < (v as number) ? '#c9a84c' : 'rgba(255,255,255,0.08)' }} />
+                        ))}
+                      </div>
                     </div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: '#c9a84c', minWidth: 14, textAlign: 'right' }}>{v as number}</span>
                   </div>
-                </div>
-              )}
-              <div ref={messagesEndRef} />
+                ))}
+              </div>
             </div>
-            {/* Input */}
-            <div className="px-5 py-4 flex gap-3 border-t border-border">
-              <input value={input} onChange={e => setInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && sendMessage()}
-                placeholder={`Say something to ${chatNpc.name}...`}
-                className="flex-1 bg-card border border-border rounded-xl px-4 py-3 text-sm font-ui text-parchment placeholder:text-parchment/20 focus:outline-none focus:border-gold/40" />
-              <button onClick={sendMessage} disabled={!input.trim() || sending}
-                className="px-5 py-3 rounded-xl text-sm font-ui font-semibold text-bg disabled:opacity-30 transition-all"
-                style={{ background: 'linear-gradient(135deg, #c9a84c, #e8c97a)' }}>
-                →
+
+            <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <button onClick={() => setMenuOpen(false)}
+                style={{ width: '100%', padding: '13px 0', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'rgba(201,168,76,0.1)', color: '#c9a84c', fontWeight: 600, fontSize: 14 }}>
+                Resume
+              </button>
+              <button onClick={() => router.push('/dashboard')}
+                style={{ width: '100%', padding: '13px 0', borderRadius: 12, border: '1px solid rgba(248,113,113,0.2)', cursor: 'pointer', background: 'rgba(248,113,113,0.06)', color: '#f87171', fontWeight: 600, fontSize: 14 }}>
+                Exit to Dashboard
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {/* ── CHAT MODAL ── */}
+      {chatNpc && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 500, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+          {/* Backdrop — tap to close */}
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={closeChat} />
+
+          {/* Panel */}
+          <div style={{
+            position: 'relative', zIndex: 1,
+            background: '#111009',
+            borderTop: '1px solid #2e2a22',
+            borderRadius: '20px 20px 0 0',
+            display: 'flex', flexDirection: 'column',
+            maxHeight: '65vh', minHeight: 340,
+          }}>
+            {/* Drag handle */}
+            <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 0' }}>
+              <div style={{ width: 36, height: 4, borderRadius: 99, background: 'rgba(255,255,255,0.12)' }} />
+            </div>
+
+            {/* NPC header */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px 14px', borderBottom: '1px solid #2e2a22', flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 12, background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
+                  {chatNpc.emoji}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: '#f5f0e8' }}>{chatNpc.name}</div>
+                  <div style={{ fontSize: 11, color: '#c9a84c', fontWeight: 500 }}>{chatNpc.role}</div>
+                </div>
+              </div>
+              <button onClick={closeChat} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(245,240,232,0.3)', fontSize: 22, lineHeight: 1, padding: '4px 8px' }}>✕</button>
+            </div>
+
+            {/* Messages — scrollable */}
+            <div ref={messagesRef} style={{ flex: 1, overflowY: 'auto', padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {messages.map((m, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                  <div style={{
+                    maxWidth: '80%', padding: '10px 14px', borderRadius: m.role === 'user' ? '16px 4px 16px 16px' : '4px 16px 16px 16px',
+                    background: m.role === 'user' ? 'rgba(201,168,76,0.15)' : '#1a1814',
+                    border: `1px solid ${m.role === 'user' ? 'rgba(201,168,76,0.3)' : '#2e2a22'}`,
+                    fontSize: 14, lineHeight: 1.55, color: m.role === 'user' ? '#f5f0e8' : 'rgba(245,240,232,0.9)',
+                  }}>
+                    {m.content}
+                  </div>
+                </div>
+              ))}
+              {sending && (
+                <div style={{ display: 'flex' }}>
+                  <div style={{ padding: '10px 16px', borderRadius: '4px 16px 16px 16px', background: '#1a1814', border: '1px solid #2e2a22', display: 'flex', gap: 5, alignItems: 'center' }}>
+                    {[0,1,2].map(i => (
+                      <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: '#c9a84c', opacity: 0.6, animation: 'bounce 1.2s infinite', animationDelay: `${i * 0.2}s` }} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Input — always visible */}
+            <div style={{ padding: '10px 14px 20px', display: 'flex', gap: 10, borderTop: '1px solid #1a1814', flexShrink: 0 }}>
+              <input
+                ref={inputRef}
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && send()}
+                placeholder={`Talk to ${chatNpc.name}...`}
+                style={{
+                  flex: 1, background: '#1a1814', border: '1px solid #2e2a22', borderRadius: 12,
+                  padding: '12px 14px', fontSize: 14, color: '#f5f0e8', outline: 'none',
+                }}
+              />
+              <button onClick={send} disabled={!input.trim() || sending}
+                style={{
+                  width: 44, height: 44, borderRadius: 12, border: 'none', cursor: input.trim() && !sending ? 'pointer' : 'default',
+                  background: input.trim() && !sending ? 'linear-gradient(135deg, #c9a84c, #dfc06a)' : 'rgba(201,168,76,0.2)',
+                  color: input.trim() && !sending ? '#1a1408' : 'rgba(201,168,76,0.4)',
+                  fontWeight: 800, fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                ›
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes bounce {
+          0%, 80%, 100% { transform: scale(0.8); opacity: 0.4; }
+          40% { transform: scale(1.2); opacity: 1; }
+        }
+      `}</style>
     </div>
   )
 }
