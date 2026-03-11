@@ -1,0 +1,110 @@
+// Shared game configuration — tile constants, map data, solid tiles, doors
+// This file has no Phaser or React dependency — safe to import anywhere.
+
+export const TILE       = 16   // tile size in pixels (source image)
+export const ZOOM       = 3    // render scale
+export const COLS       = 24
+export const ROWS       = 18
+export const FW         = 16   // sprite frame width
+export const FH         = 20   // sprite frame height
+export const NPC_SPEED  = 55   // pixels/sec (world units)
+export const PLAYER_SPEED = 200
+
+/** Tile indices — matches /public/assets/tilemap.png (12 cols × 11 rows, 16×16px) */
+export const T = {
+  GRASS:0, GRASS_F1:1, GRASS_F2:2,
+  TREE_S:5, TREE_TL:7, TREE_TR:8, TREE_BL:19, TREE_BR:20,
+  BUSH_Y:27, BUSH_G:28, MUSHROOM:29,
+  DIRT:25, COBB:32,
+  TRN_TL:12, TRN_T:13, TRN_TR:14, TRN_L:24, TRN_R:26, TRN_BL:36, TRN_B:37, TRN_BR:38,
+  ROOF_TL:48, ROOF_T:49, ROOF_TR:50, ROOF_ML:60, ROOF_M:61, ROOF_MR:62,
+  ROOFRED_TL:52, ROOFRED_T:53, ROOFRED_TR:54, ROOFRED_ML:64, ROOFRED_M:65, ROOFRED_MR:66,
+  WWALL_L:72, WWALL_C:73, WWALL_D:74, WWALL_W:75,
+  WWALL_WL:84, WWALL_WD:85, WWALL_WR:86,
+  WWALL_BL:96, WWALL_BC:97, WWALL_BR:99,
+  SWALL_L:76, SWALL_C:77, SWALL_D:78, SWALL_R:79,
+  SWALL_WL:88, SWALL_WD:89, SWALL_WR:90,
+  SWALL_BL:100, SWALL_BC:101, SWALL_BR:103,
+  WELL:92, ANVIL:105, HAMMER:106, BARREL:107, SIGN:83, HAY:94,
+}
+
+/** Tiles that block movement */
+export const SOLID_TILES = new Set([
+  // Roofs
+  48,49,50,51,52,53,54,55,60,61,62,63,64,65,66,67,
+  // Walls (mid + upper only — bottom row intentionally passable so player reaches doors)
+  72,73,75,76,77,79,84,86,87,88,90,91,
+  // Trees + bushes
+  5,7,8,19,20,27,28,
+  // Props
+  83,92,105,106,107,
+])
+
+export type BuildingEntry = {
+  id: string
+  name: string
+  npcId?: string
+  tx: number
+  ty: number
+}
+
+export type SpecialPoint = {
+  id: string
+  label: string
+  tx: number
+  ty: number
+}
+
+export const DOORS: BuildingEntry[] = [
+  { tx:5,  ty:5,  id:'bakery',   name:"Eleanor's Bakery", npcId:'eleanor' },
+  { tx:12, ty:5,  id:'townhall', name:'Town Hall',        npcId:'caleb'   },
+  { tx:18, ty:5,  id:'shop',     name:'General Store'                     },
+  { tx:2,  ty:16, id:'cottage',  name:"Maeve's Cottage",  npcId:'maeve'   },
+  { tx:12, ty:16, id:'tavern',   name:'Tavern'                            },
+  { tx:18, ty:16, id:'library',  name:'Library',          npcId:'ruth'    },
+]
+
+export const SPECIALS: SpecialPoint[] = [
+  { id: 'noticeboard', label: '📋 Notice Board', tx: 13, ty: 9  },
+  { id: 'rest',        label: '💤 Rest at Tavern', tx: 12, ty: 16 },
+]
+
+// prettier-ignore
+export const MAP_DATA: number[][] = [
+  // Row 0
+  [T.TREE_TL,T.TREE_TR,T.GRASS,T.GRASS_F1,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.TREE_TL,T.TREE_TR,T.GRASS,T.GRASS,T.GRASS,T.GRASS_F2,T.GRASS,T.GRASS,T.TREE_TL,T.TREE_TR,T.GRASS],
+  // Row 1
+  [T.TREE_BL,T.TREE_BR,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.TREE_BL,T.TREE_BR,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.TREE_BL,T.TREE_BR,T.GRASS],
+  // Row 2 — roofs
+  [T.GRASS,T.GRASS,T.GRASS,T.ROOFRED_TL,T.ROOFRED_T,T.ROOFRED_T,T.ROOFRED_TR,T.GRASS,T.GRASS,T.GRASS,T.ROOF_TL,T.ROOF_T,T.ROOF_T,T.ROOF_T,T.ROOF_TR,T.GRASS,T.GRASS,T.ROOFRED_TL,T.ROOFRED_T,T.ROOFRED_TR,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 3
+  [T.GRASS,T.GRASS,T.GRASS,T.ROOFRED_ML,T.ROOFRED_M,T.ROOFRED_M,T.ROOFRED_MR,T.GRASS,T.GRASS,T.GRASS,T.ROOF_ML,T.ROOF_M,T.ROOF_M,T.ROOF_M,T.ROOF_MR,T.GRASS,T.GRASS,T.ROOFRED_ML,T.ROOFRED_M,T.ROOFRED_MR,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 4 — walls with windows
+  [T.GRASS,T.BUSH_G,T.GRASS,T.WWALL_L,T.WWALL_WL,T.WWALL_WD,T.WWALL_W,T.GRASS,T.GRASS,T.GRASS,T.SWALL_L,T.SWALL_WL,T.SWALL_WD,T.SWALL_WD,T.SWALL_WR,T.GRASS,T.GRASS,T.WWALL_L,T.WWALL_WD,T.WWALL_W,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 5 — doors
+  [T.GRASS,T.GRASS,T.GRASS,T.WWALL_L,T.WWALL_C,T.WWALL_D,T.WWALL_W,T.GRASS,T.GRASS,T.GRASS,T.SWALL_L,T.SWALL_C,T.SWALL_D,T.SWALL_C,T.SWALL_R,T.GRASS,T.GRASS,T.WWALL_L,T.WWALL_D,T.WWALL_W,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 6 — wall bases (passable doorstep)
+  [T.GRASS,T.GRASS,T.GRASS,T.WWALL_BL,T.WWALL_BC,T.WWALL_BC,T.WWALL_BR,T.GRASS,T.GRASS,T.GRASS,T.SWALL_BL,T.SWALL_BC,T.SWALL_BC,T.SWALL_BC,T.SWALL_BR,T.GRASS,T.GRASS,T.WWALL_BL,T.WWALL_BC,T.WWALL_BR,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 7 — road north border
+  [T.TRN_TL,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_TR],
+  // Row 8
+  [T.TRN_L,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.COBB,T.COBB,T.COBB,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_R],
+  // Row 9 — well + notice board sign
+  [T.TRN_L,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.COBB,T.WELL,T.COBB,T.SIGN,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_R],
+  // Row 10
+  [T.TRN_L,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.COBB,T.COBB,T.COBB,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_R],
+  // Row 11 — road south border
+  [T.TRN_BL,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_B,T.TRN_BR],
+  // Row 12 — south approach
+  [T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS_F1,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 13 — south building roofs
+  [T.GRASS,T.ROOF_TL,T.ROOF_T,T.ROOF_TR,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.ROOFRED_TL,T.ROOFRED_T,T.ROOFRED_T,T.ROOFRED_TR,T.GRASS,T.GRASS,T.GRASS,T.ROOF_TL,T.ROOF_T,T.ROOF_TR,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 14
+  [T.GRASS,T.ROOF_ML,T.ROOF_M,T.ROOF_MR,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.ROOFRED_ML,T.ROOFRED_M,T.ROOFRED_M,T.ROOFRED_MR,T.GRASS,T.TREE_TL,T.TREE_TR,T.ROOF_ML,T.ROOF_M,T.ROOF_MR,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 15
+  [T.GRASS,T.SWALL_L,T.SWALL_WD,T.SWALL_R,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.WWALL_L,T.WWALL_WD,T.WWALL_WD,T.WWALL_W,T.GRASS,T.TREE_BL,T.TREE_BR,T.WWALL_L,T.WWALL_WD,T.WWALL_W,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 16 — south doors
+  [T.GRASS,T.SWALL_L,T.SWALL_D,T.SWALL_R,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.GRASS,T.WWALL_L,T.WWALL_C,T.WWALL_D,T.WWALL_W,T.GRASS,T.GRASS,T.GRASS,T.WWALL_L,T.WWALL_D,T.WWALL_W,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+  // Row 17 — south bases
+  [T.GRASS,T.SWALL_BL,T.SWALL_BC,T.SWALL_BR,T.GRASS,T.BUSH_G,T.BUSH_G,T.GRASS,T.GRASS,T.GRASS,T.WWALL_BL,T.WWALL_BC,T.WWALL_BC,T.WWALL_BR,T.GRASS,T.GRASS,T.GRASS_F2,T.WWALL_BL,T.WWALL_BC,T.WWALL_BR,T.GRASS,T.GRASS,T.GRASS,T.GRASS],
+]
