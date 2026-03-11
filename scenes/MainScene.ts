@@ -76,7 +76,16 @@ export class MainScene extends Phaser.Scene {
 
   constructor() {
     super({ key: 'MainScene' })
+
+    /* START-USER-CTR-CODE */
+    /* END-USER-CTR-CODE */
   }
+
+  /* START OF COMPILED CODE */
+  editorCreate(): void {
+    this.events.emit('scene-awake')
+  }
+  /* END OF COMPILED CODE */
 
   // ── Preload ──────────────────────────────────────────────────────────────
 

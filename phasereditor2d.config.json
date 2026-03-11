@@ -1,0 +1,13 @@
+{
+    "plugins": [],
+    "scripts": [
+        "@phaserjs/editor-scripts-base"
+    ],
+    "skip": [
+        "dist",
+        ".next",
+        ".vercel",
+        "node_modules"
+    ],
+    "playUrl": "http://localhost:3000"
+}

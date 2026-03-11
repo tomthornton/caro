@@ -1,14 +1,16 @@
 {
     "id": "e7f1a2b3-c4d5-4e6f-a7b8-c9d0e1f2a3b4",
-    "key": "MainScene",
-    "type": "Scene",
+    "sceneType": "SCENE",
     "settings": {
-        "label": "MainScene",
-        "pack": {
-            "files": []
-        }
+        "exportClass": true,
+        "autoImport": true,
+        "preloadPackFiles": [],
+        "createMethodName": "editorCreate",
+        "sceneKey": "MainScene",
+        "compilerOutputLanguage": "TYPE_SCRIPT",
+        "borderWidth": 1152,
+        "borderHeight": 864
     },
-    "lists": {},
-    "prefabs": [],
-    "children": []
+    "displayList": [],
+    "prefabs": []
 }
