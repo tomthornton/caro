@@ -170,3 +170,42 @@ export const NPC_PALETTES: Record<string, CharColors> = {
     pants: '#2a3a6a', shoe: '#1a1208', detail: '#7090c0'
   },
 }
+
+// ── Real sprite system (FarmRPG asset pack) ──────────────────────────────────
+//
+// Walk.png format: 192×96px, 6 cols × 3 rows, frameWidth=32, frameHeight=32
+//   Row 0 = facing down  (6 walk frames)
+//   Row 1 = facing left  (6 walk frames) — flip X for right
+//   Row 2 = facing up    (6 walk frames)
+//
+// Idle.png format: 128×96px, 4 cols × 3 rows, frameWidth=32, frameHeight=32
+//   Row 0 = facing down  (4 idle frames — frame 0 used as static idle)
+//   Row 1 = facing left
+//   Row 2 = facing up
+
+export const FARMRPG_SPRITE_W = 32
+export const FARMRPG_SPRITE_H = 32
+export const FARMRPG_WALK_COLS = 6
+export const FARMRPG_WALK_ROWS = 3
+
+// NPC id → which pre-made character to use
+export const NPC_SPRITE_MAP: Record<string, string> = {
+  eleanor: 'alex',   // baker  → Alex (female farmer)
+  silas:   'josh',   // smith  → Josh (sturdy male)
+  maeve:   'lyria',  // herb   → Lyria (light, natural)
+  caleb:   'manu',   // gov    → Manu (formal male)
+  ruth:    'tori',   // scholar→ Tori (female)
+}
+
+// Archetype → player sprite
+export const ARCHETYPE_SPRITE_MAP: Record<string, string> = {
+  Adventurer: 'josh',
+  Scholar:    'tori',
+  Farmer:     'alex',
+  Artisan:    'manu',
+  Healer:     'lyria',
+}
+
+// All character names in the pack
+export const FARMRPG_CHARACTERS = ['alex', 'josh', 'lyria', 'manu', 'tori'] as const
+export type FarmRPGCharacter = typeof FARMRPG_CHARACTERS[number]

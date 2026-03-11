@@ -13,7 +13,7 @@
 import * as Phaser from 'phaser'
 import type { NpcSoul } from '../lib/npcs'
 import type { Character } from '../lib/supabase'
-import { NPC_PALETTES, generateSpriteCanvas } from '../lib/char-sprites'
+import { NPC_PALETTES, generateSpriteCanvas, NPC_SPRITE_MAP, ARCHETYPE_SPRITE_MAP, FARMRPG_CHARACTERS, FARMRPG_SPRITE_W, FARMRPG_SPRITE_H, FARMRPG_WALK_COLS } from '../lib/char-sprites'
 import { NPC_SCHEDULE, getCurrentEntry } from '../lib/npc-schedule'
 import {
   TILE, ZOOM, COLS, ROWS, FW, FH,
@@ -69,6 +69,10 @@ export class MainScene extends Phaser.Scene {
   // ── Persistence ──────────────────────────────────────────────────────────
   positionSaveAcc = 0
 
+  // ── Sprite key helpers (set in create()) ────────────────────────────────
+  _getSpriteKey?:    (npcId: string) => string
+  _getPlayerSprKey?: () => string
+
   // ── Multiplayer ───────────────────────────────────────────────────────────
   otherPlayerSprites: Map<string, Phaser.GameObjects.Sprite>   = new Map()
   otherPlayerNames:   Map<string, Phaser.GameObjects.Text>     = new Map()
@@ -91,6 +95,12 @@ export class MainScene extends Phaser.Scene {
 
   preload() {
     this.load.image('tiles', '/assets/tilemap.png')
+    // Load FarmRPG character spritesheets
+    for (const char of FARMRPG_CHARACTERS) {
+      this.load.spritesheet(`char_${char}`, `/assets/characters/${char}-walk.png`, {
+        frameWidth: FARMRPG_SPRITE_W, frameHeight: FARMRPG_SPRITE_H,
+      })
+    }
   }
 
   // ── Create ───────────────────────────────────────────────────────────────
@@ -105,17 +115,32 @@ export class MainScene extends Phaser.Scene {
     this.gameHour   = this.registry.get('initialHour')   ?? 8
     this.gameMinute = this.registry.get('initialMinute') ?? 0
 
-    // ── Sprite sheets (synchronous — HTMLCanvasElement) ─────────────────
-    const allKeys = [...npcs.map(n => n.id), 'player']
-    allKeys.forEach(key => {
-      if (this.textures.exists(key)) return
-      const palette = NPC_PALETTES[key] ?? NPC_PALETTES.player
-      const canvas  = generateSpriteCanvas(palette)
-      this.textures.addSpriteSheet(key, canvas as any, { frameWidth: FW, frameHeight: FH })
-    })
+    // ── FarmRPG character sprite animations ─────────────────────────────
+    // Walk.png: 6 cols × 3 rows, 32×32px
+    //   Row 0 = down, Row 1 = left/right (flip for right), Row 2 = up
+    for (const char of FARMRPG_CHARACTERS) {
+      const key = `char_${char}`
+      if (this.anims.exists(`${key}_walk_down`)) continue
+      const cols = FARMRPG_WALK_COLS
+      this.anims.create({ key: `${key}_walk_down`,  frames: this.anims.generateFrameNumbers(key, { start: 0,        end: cols-1     }), frameRate: 10, repeat: -1 })
+      this.anims.create({ key: `${key}_walk_left`,  frames: this.anims.generateFrameNumbers(key, { start: cols,     end: cols*2-1   }), frameRate: 10, repeat: -1 })
+      this.anims.create({ key: `${key}_walk_up`,    frames: this.anims.generateFrameNumbers(key, { start: cols*2,   end: cols*3-1   }), frameRate: 10, repeat: -1 })
+      this.anims.create({ key: `${key}_idle_down`,  frames: this.anims.generateFrameNumbers(key, { start: 0,        end: 0          }), frameRate: 1,  repeat: 0  })
+      this.anims.create({ key: `${key}_idle_left`,  frames: this.anims.generateFrameNumbers(key, { start: cols,     end: cols       }), frameRate: 1,  repeat: 0  })
+      this.anims.create({ key: `${key}_idle_up`,    frames: this.anims.generateFrameNumbers(key, { start: cols*2,   end: cols*2     }), frameRate: 1,  repeat: 0  })
+    }
 
-    // ── Animations ────────────────────────────────────────────────────────
-    allKeys.forEach(key => this._setupAnims(key))
+    // Helper: get texture key for an NPC or player
+    const getSpriteKey = (npcId: string) => {
+      const charName = NPC_SPRITE_MAP[npcId] ?? 'josh'
+      return `char_${charName}`
+    }
+    const getPlayerSpriteKey = () => {
+      const arch = character?.archetype ?? 'Adventurer'
+      return `char_${ARCHETYPE_SPRITE_MAP[arch] ?? 'josh'}`
+    }
+    this._getSpriteKey    = getSpriteKey
+    this._getPlayerSprKey = getPlayerSpriteKey
 
     // ── Tilemap ───────────────────────────────────────────────────────────
     const map     = this.make.tilemap({ data: MAP_DATA, tileWidth: TILE, tileHeight: TILE })
@@ -131,7 +156,8 @@ export class MainScene extends Phaser.Scene {
       const wx = startEntry.tx * TILE * ZOOM + (TILE * ZOOM) / 2
       const wy = startEntry.ty * TILE * ZOOM + (TILE * ZOOM) / 2
 
-      const spr = this.add.sprite(wx, wy, npc.id, 0).setScale(ZOOM).setDepth(wy)
+      const npcTex = getSpriteKey(npc.id)
+      const spr = this.add.sprite(wx, wy, npcTex, 0).setScale(ZOOM).setDepth(wy)
       spr.setInteractive()
       spr.on('pointerdown', () => this.game.events.emit(GameEvents.NPC_INTERACT, npc.id))
 
@@ -168,7 +194,7 @@ export class MainScene extends Phaser.Scene {
       .setSize(TILE * ZOOM * 0.45, TILE * ZOOM * 0.3)
     this.physics.add.collider(this.playerBody, layer)
 
-    this.playerSpr = this.add.sprite(sx, sy, 'player', 0)
+    this.playerSpr = this.add.sprite(sx, sy, getPlayerSpriteKey(), 0)
       .setScale(ZOOM).setDepth(sy)
 
     this.playerName = this.add.text(sx, sy - 36, character?.name ?? '', {
@@ -293,7 +319,7 @@ export class MainScene extends Phaser.Scene {
     const pMoving = vx !== 0 || vy !== 0
     const pFacing = pMoving ? this._getFacing(vx, vy) : (this.playerSpr.getData('facing') || 'down')
     if (pMoving) this.playerSpr.setData('facing', pFacing)
-    this._playAnim(this.playerSpr, 'player', pFacing, pMoving)
+    this._playAnim(this.playerSpr, this._getPlayerSprKey ? this._getPlayerSprKey() : 'char_josh', pFacing, pMoving)
 
     // ── NPC movement ──────────────────────────────────────────────────────
     npcs.forEach(npc => {
@@ -328,12 +354,12 @@ export class MainScene extends Phaser.Scene {
 
         const facing = this._getFacing(dx, dy)
         this.npcFacing.set(npc.id, facing)
-        this._playAnim(spr, npc.id, facing, true)
+        this._playAnim(spr, this._getSpriteKey ? this._getSpriteKey(npc.id) : 'char_josh', facing, true)
         labels?.badge.setText(entry.activity).setVisible(true)
       } else {
         // Arrived — idle bob
         spr.setDepth(spr.y)
-        this._playAnim(spr, npc.id, this.npcFacing.get(npc.id) || 'down', false)
+        this._playAnim(spr, this._getSpriteKey ? this._getSpriteKey(npc.id) : 'char_josh', this.npcFacing.get(npc.id) || 'down', false)
         labels?.badge.setVisible(false)
 
         if (!this.npcTweens.has(npc.id)) {
@@ -452,15 +478,13 @@ export class MainScene extends Phaser.Scene {
     players.forEach(p => {
       const texKey = `op_${p.userId.slice(0, 8)}`
 
-      // Generate sprite sheet if not exists
-      if (!this.textures.exists(texKey)) {
-        const canvas = generateSpriteCanvas(p.palette as any)
-        this.textures.addSpriteSheet(texKey, canvas as any, { frameWidth: FW, frameHeight: FH })
-        this._setupAnims(texKey)
-      }
+      // Pick a real sprite for other players — consistent per userId
+      const opChars = FARMRPG_CHARACTERS
+      const charIdx = p.userId.charCodeAt(0) % opChars.length
+      const opCharKey = `char_${opChars[charIdx]}`
 
       if (!this.otherPlayerSprites.has(p.userId)) {
-        const spr = this.add.sprite(p.x, p.y, texKey, 0).setScale(ZOOM).setDepth(p.y)
+        const spr = this.add.sprite(p.x, p.y, opCharKey, 0).setScale(ZOOM).setDepth(p.y).setTint(0xa0c8ff)
         const nameTag = this.add.text(p.x, p.y - 38, p.characterName, {
           fontSize: '10px', fontStyle: 'bold', color: '#a0d0ff',
           stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
@@ -474,7 +498,9 @@ export class MainScene extends Phaser.Scene {
 
       // Play anim
       const spr = this.otherPlayerSprites.get(p.userId)!
-      this._playAnim(spr, texKey, p.facing, false)
+      const opCharIdx2 = p.userId.charCodeAt(0) % FARMRPG_CHARACTERS.length
+      const opKey = `char_${FARMRPG_CHARACTERS[opCharIdx2]}`
+      this._playAnim(spr, opKey, p.facing, false)
     })
   }
 
@@ -483,22 +509,14 @@ export class MainScene extends Phaser.Scene {
     return vy > 0 ? 'down' : 'up'
   }
 
-  private _playAnim(spr: Phaser.GameObjects.Sprite, key: string, facing: string, moving: boolean) {
-    const dir     = facing === 'left' || facing === 'right' ? 'side' : facing
-    const animKey = `${key}_${moving ? 'walk' : 'idle'}_${dir}`
+  // _playAnim — works with FarmRPG char_* texture keys
+  // FarmRPG Walk.png: row 0=down, row 1=left(flip for right), row 2=up
+  private _playAnim(spr: Phaser.GameObjects.Sprite, sprKey: string, facing: string, moving: boolean) {
+    // sprKey is already the full texture key, e.g. 'char_alex'
+    // For 'right' we use the 'left' animation and flip
+    const dir = facing === 'right' ? 'left' : facing === 'up' ? 'up' : facing === 'left' ? 'left' : 'down'
+    const animKey = `${sprKey}_${moving ? 'walk' : 'idle'}_${dir}`
     if (this.anims.exists(animKey) && spr.anims.currentAnim?.key !== animKey) spr.play(animKey)
-    spr.setFlipX(facing === 'left')
-  }
-
-  private _setupAnims(key: string) {
-    if (!this.textures.exists(key)) return
-    const c = (start: number, end: number) => this.anims.generateFrameNumbers(key, { start, end })
-    const f = (frames: number[]) => this.anims.generateFrameNumbers(key, { frames })
-    this.anims.create({ key: `${key}_idle_down`, frames: c(0, 0), frameRate: 1, repeat: -1 })
-    this.anims.create({ key: `${key}_walk_down`, frames: f([0,1,0,2]),            frameRate: 8, repeat: -1 })
-    this.anims.create({ key: `${key}_idle_up`,   frames: c(3, 3), frameRate: 1, repeat: -1 })
-    this.anims.create({ key: `${key}_walk_up`,   frames: f([3,4,3,5]),            frameRate: 8, repeat: -1 })
-    this.anims.create({ key: `${key}_idle_side`, frames: c(6, 6), frameRate: 1, repeat: -1 })
-    this.anims.create({ key: `${key}_walk_side`, frames: f([6,7,6,8]),            frameRate: 8, repeat: -1 })
+    spr.setFlipX(facing === 'right')
   }
 }
