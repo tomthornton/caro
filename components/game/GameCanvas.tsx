@@ -264,8 +264,9 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
           }).setOrigin(0.5).setResolution(textRes)
           this.hint.add([hBg, this.hintText])
           // Make hint tappable on mobile — tap to enter building or talk
-          this.hint.setSize(104, 32).setInteractive({ useHandCursor: true })
-          this.hint.on('pointerdown', () => {
+          this.hint.setSize(130, 44).setInteractive({ useHandCursor: true })
+          this.hint.on('pointerdown', (ptr: any) => {
+            ptr?.event?.stopPropagation?.()
             if (this.nearbyDoor) { onEnterBuilding(this.nearbyDoor); return }
             if (this.nearbyNpc) { const n = npcs.find(x => x.id === this.nearbyNpc); if (n) onNpcInteract(n) }
           })

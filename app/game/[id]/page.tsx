@@ -253,12 +253,14 @@ export default function GamePage() {
       {!chatNpc && !activeBuilding && nearDoor && (
         <div style={{ position: 'absolute', bottom: 110, left: '50%', transform: 'translateX(-50%)', zIndex: 9990, pointerEvents: 'auto' }}>
           <button
-            onClick={() => { setActiveBuilding(nearDoor); setNearDoor(null) }}
+            onPointerDown={(e) => { e.stopPropagation(); setActiveBuilding(nearDoor); setNearDoor(null) }}
             style={{
-              padding: '12px 28px', borderRadius: 12, fontSize: 15, fontWeight: 700,
-              background: 'rgba(10,8,5,0.92)', border: '1.5px solid #c9a84c',
+              padding: '14px 32px', borderRadius: 12, fontSize: 16, fontWeight: 700,
+              background: 'rgba(10,8,5,0.95)', border: '2px solid #c9a84c',
               color: '#c9a84c', cursor: 'pointer', letterSpacing: '0.04em',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+              boxShadow: '0 4px 24px rgba(0,0,0,0.7)',
+              WebkitTapHighlightColor: 'transparent',
+              touchAction: 'manipulation',
             }}
           >
             🚪 Enter {nearDoor.name}
