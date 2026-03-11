@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { supabase, Game, Character } from '@/lib/supabase'
 import { NPC_LIST, NpcSoul, NPCS } from '@/lib/npcs'
+import { getNpcInsideBuilding } from '@/lib/npc-schedule'
 import type { BuildingEntry } from '@/components/game/GameCanvas'
 import type { Item } from '@/components/game/InventoryPanel'
 import { STARTER_ITEMS } from '@/components/game/InventoryPanel'
@@ -185,16 +186,21 @@ export default function GamePage() {
         />
       )}
 
-      {/* Building interior */}
-      {character && activeBuilding && (
-        <BuildingInterior
-          building={activeBuilding}
-          characterName={character.name}
-          npc={activeBuilding.npcId ? NPCS[activeBuilding.npcId] : undefined}
-          onExit={() => setActiveBuilding(null)}
-          onNpcInteract={openChat}
-        />
-      )}
+      {/* Building interior — NPC shown only if their schedule puts them inside right now */}
+      {character && activeBuilding && (() => {
+        const insideNpcId = Object.keys(NPCS).find(
+          id => getNpcInsideBuilding(id, gameTime.hour) === activeBuilding.id
+        )
+        return (
+          <BuildingInterior
+            building={activeBuilding}
+            characterName={character.name}
+            npc={insideNpcId ? NPCS[insideNpcId] : undefined}
+            onExit={() => setActiveBuilding(null)}
+            onNpcInteract={openChat}
+          />
+        )
+      })()}
 
       {/* Inventory panel */}
       {inventoryOpen && (

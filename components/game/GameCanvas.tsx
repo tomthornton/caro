@@ -4,6 +4,7 @@ import { useEffect, useRef } from 'react'
 import type { Character } from '@/lib/supabase'
 import type { NpcSoul } from '@/lib/npcs'
 import { generateSpriteCanvas, NPC_PALETTES } from '@/lib/char-sprites'
+import { NPC_SCHEDULE, getCurrentEntry } from '@/lib/npc-schedule'
 
 export type BuildingEntry = {
   id: string; name: string; npcId?: string
@@ -78,39 +79,7 @@ const MAP_DATA: number[][] = [
   [T.TREE_TL,T.SWALL_BL,T.SWALL_BC,T.SWALL_BR,T.GRASS,T.BUSH_HL,T.BUSH_HR,T.GRASS,T.GRASS,T.GRASS,T.WWALL_BL,T.WWALL_BC,T.WWALL_BC,T.WWALL_BR,T.GRASS,T.GRASS,T.GRASS_F2,T.WWALL_BL,T.WWALL_BC,T.WWALL_BR,T.GRASS,T.TREE_ATL,T.TREE_ATR,T.TREE_TR],
 ]
 
-// NPC schedule: tile coords per time-of-day
-const NPC_SCHEDULE: Record<string, { hour: number; tx: number; ty: number; activity: string }[]> = {
-  eleanor: [
-    { hour:  5, tx: 5,  ty: 5,  activity: 'Opening the bakery' },
-    { hour: 13, tx: 9,  ty: 9,  activity: 'Afternoon walk'     },
-    { hour: 17, tx: 11, ty: 9,  activity: 'Tending the well'   },
-    { hour: 20, tx: 5,  ty: 5,  activity: 'Closing up'         },
-  ],
-  silas: [
-    { hour:  6, tx: 18, ty: 5,  activity: 'At the forge'       },
-    { hour: 12, tx: 18, ty: 9,  activity: 'Lunch break'        },
-    { hour: 19, tx: 12, ty: 16, activity: 'Evening at tavern'  },
-    { hour: 21, tx: 18, ty: 5,  activity: 'Home'               },
-  ],
-  maeve: [
-    { hour:  6, tx: 2,  ty: 16, activity: 'Tending garden'     },
-    { hour: 14, tx: 18, ty: 16, activity: 'Visiting library'   },
-    { hour: 17, tx: 11, ty: 9,  activity: 'Evening walk'       },
-    { hour: 20, tx: 2,  ty: 16, activity: 'Home at dusk'       },
-  ],
-  caleb: [
-    { hour:  8, tx: 13, ty: 4,  activity: 'Morning at Town Hall' },
-    { hour: 11, tx: 9,  ty: 9,  activity: 'Walking the town'     },
-    { hour: 13, tx: 5,  ty: 8,  activity: 'Lunch by bakery'      },
-    { hour: 19, tx: 12, ty: 16, activity: 'Evening at tavern'    },
-  ],
-  ruth: [
-    { hour:  8, tx: 18, ty: 16, activity: 'Library open'       },
-    { hour: 14, tx: 18, ty: 16, activity: 'Afternoon reading'  },
-    { hour: 17, tx: 11, ty: 9,  activity: 'Evening observation'},
-    { hour: 19, tx: 18, ty: 16, activity: 'Closing library'    },
-  ],
-}
+// (schedules imported from lib/npc-schedule.ts)
 
 export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuilding, onClockTick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -230,8 +199,9 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
           })
 
           // ── Player ─────────────────────────────────────────────────
-          const sx = 11 * TILE * ZOOM + (TILE * ZOOM) / 2
-          const sy = 9  * TILE * ZOOM + (TILE * ZOOM) / 2
+          // Start at (9,9) — on the path, clear of the well at (11,9)
+          const sx = 9 * TILE * ZOOM + (TILE * ZOOM) / 2
+          const sy = 9 * TILE * ZOOM + (TILE * ZOOM) / 2
 
           this.playerBody = this.physics.add.image(sx, sy, '__DEFAULT')
             .setVisible(false).setCollideWorldBounds(true)
@@ -277,8 +247,9 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
           this.input.keyboard!.on('keydown-E', (e: KeyboardEvent) => {
             e.stopPropagation()
             if (!this.input.keyboard!.enabled) return
-            if (this.nearbyNpc) { const n=npcs.find(x=>x.id===this.nearbyNpc); if(n) { onNpcInteract(n); return } }
-            if (this.nearbyDoor) onEnterBuilding(this.nearbyDoor)
+            // Door always takes priority — enter building first
+            if (this.nearbyDoor) { onEnterBuilding(this.nearbyDoor); return }
+            if (this.nearbyNpc) { const n=npcs.find(x=>x.id===this.nearbyNpc); if(n) onNpcInteract(n) }
           })
 
           // Disable movement keys while typing in a React input
@@ -326,12 +297,8 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
 
         // ── Helper: schedule target for this hour ───────────────────
         getScheduleTarget(npcId: string): { x: number; y: number } | null {
-          const sched = NPC_SCHEDULE[npcId]
-          if (!sched) return null
-          let entry = sched[0]
-          for (const e of sched) {
-            if (this.gameHour >= e.hour) entry = e
-          }
+          const entry = getCurrentEntry(npcId, this.gameHour)
+          if (!entry) return null
           return {
             x: entry.tx * TILE * ZOOM + (TILE * ZOOM) / 2,
             y: entry.ty * TILE * ZOOM + (TILE * ZOOM) / 2,
@@ -339,11 +306,11 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
         }
 
         getScheduleActivity(npcId: string): string {
-          const sched = NPC_SCHEDULE[npcId]
-          if (!sched) return ''
-          let entry = sched[0]
-          for (const e of sched) { if (this.gameHour >= e.hour) entry = e }
-          return entry.activity
+          return getCurrentEntry(npcId, this.gameHour)?.activity ?? ''
+        }
+
+        isNpcInside(npcId: string): boolean {
+          return !!getCurrentEntry(npcId, this.gameHour)?.inside
         }
 
         update(_: number, delta: number) {
@@ -389,9 +356,19 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
           const NPC_SPEED = 55  // slower than player, deliberate pace
 
           npcs.forEach(npc => {
-            const spr = this.npcSprites.get(npc.id)
+            const spr    = this.npcSprites.get(npc.id)
             const labels = this.npcLabels.get(npc.id)
             if (!spr) return
+
+            // Hide NPC when they're inside a building
+            const inside = this.isNpcInside(npc.id)
+            spr.setVisible(!inside)
+            if (labels) {
+              labels.name.setVisible(!inside)
+              labels.role.setVisible(!inside)
+              labels.badge.setVisible(false)
+            }
+            if (inside) return
 
             const target = this.getScheduleTarget(npc.id)
             if (!target) return
@@ -401,7 +378,6 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
             const dist = Math.sqrt(dx*dx + dy*dy)
 
             if (dist > 6) {
-              // Move toward target
               const dt = delta / 1000
               spr.x += (dx/dist) * NPC_SPEED * dt
               spr.y += (dy/dist) * NPC_SPEED * dt
@@ -411,20 +387,15 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
               this.npcFacing.set(npc.id, facing)
               this.playAnim(spr, npc.id, facing, true)
 
-              // Show activity badge only when moving
               if (labels) {
-                const act = this.getScheduleActivity(npc.id)
-                labels.badge.setText(act).setVisible(true)
+                labels.badge.setText(this.getScheduleActivity(npc.id)).setVisible(true)
               }
             } else {
-              // Arrived — idle
               spr.setDepth(spr.y)
-              const facing = this.npcFacing.get(npc.id) || 'down'
-              this.playAnim(spr, npc.id, facing, false)
+              this.playAnim(spr, npc.id, this.npcFacing.get(npc.id) || 'down', false)
               if (labels) labels.badge.setVisible(false)
             }
 
-            // Update label positions
             if (labels) {
               labels.name.setPosition(spr.x, spr.y - 36).setDepth(spr.y + 20)
               labels.role.setPosition(spr.x, spr.y - 24).setDepth(spr.y + 20)
@@ -433,15 +404,7 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
           })
 
           // ── Proximity detection ─────────────────────────────────────
-          let closestNpc: string | null = null, minND = 80
-          npcs.forEach(npc => {
-            const spr = this.npcSprites.get(npc.id)
-            if (!spr) return
-            const d = Phaser.Math.Distance.Between(px, py, spr.x, spr.y)
-            if (d < minND) { minND = d; closestNpc = npc.id }
-          })
-          this.nearbyNpc = closestNpc
-
+          // Door proximity (always wins over NPC for [E] — enter building first)
           let closestDoor: BuildingEntry | null = null, minDD = 70
           DOORS.forEach(door => {
             const wx = door.tx*TILE*ZOOM+(TILE*ZOOM)/2
@@ -451,15 +414,26 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
           })
           this.nearbyDoor = closestDoor
 
-          // Hint
-          if (closestNpc) {
+          // NPC proximity (only counts when NPC is visible outdoors)
+          let closestNpc: string | null = null, minND = 72
+          npcs.forEach(npc => {
+            const spr = this.npcSprites.get(npc.id)
+            if (!spr || !spr.visible) return
+            const d = Phaser.Math.Distance.Between(px, py, spr.x, spr.y)
+            if (d < minND) { minND = d; closestNpc = npc.id }
+          })
+          this.nearbyNpc = closestNpc
+
+          // Hint — door takes priority
+          if (closestDoor) {
+            const d = closestDoor as any
+            const isMob = window.innerWidth < 768
+            this.hintText.setText(isMob ? '↑ Enter' : '[E] Enter')
+            this.hint.setPosition(d.tx*TILE*ZOOM+(TILE*ZOOM)/2, d.ty*TILE*ZOOM+(TILE*ZOOM)/2-32).setVisible(true)
+          } else if (closestNpc) {
             const spr = this.npcSprites.get(closestNpc)!
             this.hintText.setText(window.innerWidth < 768 ? 'Tap to talk' : '[E] Talk')
             this.hint.setPosition(spr.x, spr.y - 58).setVisible(true)
-          } else if (closestDoor) {
-            const d = closestDoor as any
-            this.hintText.setText(window.innerWidth < 768 ? 'Tap — Enter' : '[E] Enter')
-            this.hint.setPosition(d.tx*TILE*ZOOM+(TILE*ZOOM)/2, d.ty*TILE*ZOOM+(TILE*ZOOM)/2-32).setVisible(true)
           } else {
             this.hint.setVisible(false)
           }
