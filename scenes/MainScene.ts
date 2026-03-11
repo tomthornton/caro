@@ -11,18 +11,18 @@
  */
 
 import * as Phaser from 'phaser'
-import type { NpcSoul } from '@/lib/npcs'
-import type { Character } from '@/lib/supabase'
-import { NPC_PALETTES, generateSpriteCanvas } from '@/lib/char-sprites'
-import { NPC_SCHEDULE, getCurrentEntry } from '@/lib/npc-schedule'
+import type { NpcSoul } from '../lib/npcs'
+import type { Character } from '../lib/supabase'
+import { NPC_PALETTES, generateSpriteCanvas } from '../lib/char-sprites'
+import { NPC_SCHEDULE, getCurrentEntry } from '../lib/npc-schedule'
 import {
   TILE, ZOOM, COLS, ROWS, FW, FH,
   NPC_SPEED, PLAYER_SPEED,
   SOLID_TILES, MAP_DATA, DOORS, SPECIALS,
   type BuildingEntry,
-} from '@/game/GameConfig'
-import { GameEvents } from '@/game/GameEvents'
-import type { PlayerPresence } from '@/lib/multiplayer'
+} from '../game/GameConfig'
+import { GameEvents } from '../game/GameEvents'
+import type { PlayerPresence } from '../lib/multiplayer'
 
 type NpcLabels = {
   name:  Phaser.GameObjects.Text
