@@ -34,6 +34,7 @@ export default function GamePage() {
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [inventory, setInventory] = useState<Item[]>(STARTER_ITEMS)
   const [gameTime, setGameTime] = useState<{ hour: number; minute: number }>({ hour: 8, minute: 0 })
+  const [nearDoor, setNearDoor] = useState<BuildingEntry | null>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatNpcRef = useRef<NpcSoul | null>(null)
@@ -183,6 +184,7 @@ export default function GamePage() {
           onNpcInteract={openChat}
           onEnterBuilding={setActiveBuilding}
           onClockTick={(h, m) => setGameTime({ hour: h, minute: m })}
+          onNearDoor={setNearDoor}
         />
       )}
 
@@ -246,6 +248,23 @@ export default function GamePage() {
           </button>
         </div>
       </div>
+
+      {/* Mobile Enter button — shown when near a door and no chat open */}
+      {!chatNpc && !activeBuilding && nearDoor && (
+        <div style={{ position: 'absolute', bottom: 110, left: '50%', transform: 'translateX(-50%)', zIndex: 9990, pointerEvents: 'auto' }}>
+          <button
+            onClick={() => { setActiveBuilding(nearDoor); setNearDoor(null) }}
+            style={{
+              padding: '12px 28px', borderRadius: 12, fontSize: 15, fontWeight: 700,
+              background: 'rgba(10,8,5,0.92)', border: '1.5px solid #c9a84c',
+              color: '#c9a84c', cursor: 'pointer', letterSpacing: '0.04em',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.5)',
+            }}
+          >
+            🚪 Enter {nearDoor.name}
+          </button>
+        </div>
+      )}
 
       {!chatNpc && (
         <div style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', pointerEvents: 'none' }}>

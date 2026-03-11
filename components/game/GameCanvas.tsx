@@ -16,6 +16,7 @@ type Props = {
   onNpcInteract: (npc: NpcSoul) => void
   onEnterBuilding: (b: BuildingEntry) => void
   onClockTick?: (hour: number, minute: number) => void
+  onNearDoor?: (door: BuildingEntry | null) => void
 }
 
 // ── Tile constants ────────────────────────────────────────────────────────────
@@ -102,11 +103,13 @@ const MAP_DATA: number[][] = [
 
 // (schedules imported from lib/npc-schedule.ts)
 
-export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuilding, onClockTick }: Props) {
+export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuilding, onClockTick, onNearDoor }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const gameRef = useRef<any>(null)
-  const clockCallbackRef = useRef(onClockTick)
-  clockCallbackRef.current = onClockTick
+  const clockCallbackRef   = useRef(onClockTick)
+  const nearDoorCallbackRef = useRef(onNearDoor)
+  clockCallbackRef.current   = onClockTick
+  nearDoorCallbackRef.current = onNearDoor
 
   useEffect(() => {
     if (!containerRef.current || gameRef.current) return
@@ -127,9 +130,10 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
         npcFacing:   Map<string, string> = new Map()
         cursors!:    Phaser.Types.Input.Keyboard.CursorKeys
         wasd!:       any
-        nearbyNpc:   string | null = null
-        nearbyDoor:  BuildingEntry | null = null
-        hint!:       Phaser.GameObjects.Container
+        nearbyNpc:       string | null = null
+        nearbyDoor:      BuildingEntry | null = null
+        prevNearbyDoor:  (BuildingEntry | null) = null
+        hint!:           Phaser.GameObjects.Container
         hintText!:   Phaser.GameObjects.Text
         joystick =   { on: false, x0: 0, y0: 0, cx: 0, cy: 0 }
         jBase!:      Phaser.GameObjects.Arc
@@ -253,12 +257,18 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
           // ── Hint ───────────────────────────────────────────────────
           this.hint = this.add.container(0, 0).setVisible(false).setDepth(9985)
           const hBg = this.add.graphics()
-          hBg.fillStyle(0x111009,0.88); hBg.fillRoundedRect(-46,-14,92,28,6)
-          hBg.lineStyle(1.5,0xc9a84c,0.8); hBg.strokeRoundedRect(-46,-14,92,28,6)
+          hBg.fillStyle(0x111009,0.88); hBg.fillRoundedRect(-52,-16,104,32,8)
+          hBg.lineStyle(1.5,0xc9a84c,0.8); hBg.strokeRoundedRect(-52,-16,104,32,8)
           this.hintText = this.add.text(0,0,'',{
-            fontSize:'10px',fontStyle:'bold',color:'#c9a84c',fontFamily:'Inter, sans-serif'
+            fontSize:'11px',fontStyle:'bold',color:'#c9a84c',fontFamily:'Inter, sans-serif'
           }).setOrigin(0.5).setResolution(textRes)
           this.hint.add([hBg, this.hintText])
+          // Make hint tappable on mobile — tap to enter building or talk
+          this.hint.setSize(104, 32).setInteractive({ useHandCursor: true })
+          this.hint.on('pointerdown', () => {
+            if (this.nearbyDoor) { onEnterBuilding(this.nearbyDoor); return }
+            if (this.nearbyNpc) { const n = npcs.find(x => x.id === this.nearbyNpc); if (n) onNpcInteract(n) }
+          })
 
           // ── Input ──────────────────────────────────────────────────
           this.cursors = this.input.keyboard!.createCursorKeys()
@@ -433,7 +443,7 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
             const d = Phaser.Math.Distance.Between(px, py, wx, wy)
             if (d < minDD) { minDD = d; closestDoor = door }
           })
-          this.nearbyDoor = closestDoor
+          this.nearbyDoor = closestDoor as BuildingEntry | null
 
           // NPC proximity (only counts when NPC is visible outdoors)
           let closestNpc: string | null = null, minND = 72
@@ -445,15 +455,23 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
           })
           this.nearbyNpc = closestNpc
 
+          // Notify React when nearby door changes (for mobile Enter button)
+          const prevId = (this.prevNearbyDoor as any)?.id ?? null
+          const currId = this.nearbyDoor?.id ?? null
+          if (currId !== prevId) {
+            this.prevNearbyDoor = this.nearbyDoor as any
+            nearDoorCallbackRef.current?.(this.nearbyDoor)
+          }
+
           // Hint — door takes priority
+          const isMob = window.innerWidth < 768
           if (closestDoor) {
             const d = closestDoor as any
-            const isMob = window.innerWidth < 768
-            this.hintText.setText(isMob ? '↑ Enter' : '[E] Enter')
-            this.hint.setPosition(d.tx*TILE*ZOOM+(TILE*ZOOM)/2, d.ty*TILE*ZOOM+(TILE*ZOOM)/2-32).setVisible(true)
+            this.hintText.setText(isMob ? '🚪 Tap to Enter' : '[E] Enter')
+            this.hint.setPosition(d.tx*TILE*ZOOM+(TILE*ZOOM)/2, d.ty*TILE*ZOOM+(TILE*ZOOM)/2-40).setVisible(true)
           } else if (closestNpc) {
             const spr = this.npcSprites.get(closestNpc)!
-            this.hintText.setText(window.innerWidth < 768 ? 'Tap to talk' : '[E] Talk')
+            this.hintText.setText(isMob ? '💬 Tap to Talk' : '[E] Talk')
             this.hint.setPosition(spr.x, spr.y - 58).setVisible(true)
           } else {
             this.hint.setVisible(false)
