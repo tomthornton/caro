@@ -10,6 +10,8 @@ import { getNpcInsideBuilding } from '@/lib/npc-schedule'
 import type { BuildingEntry } from '@/components/game/GameCanvas'
 import type { Item } from '@/components/game/InventoryPanel'
 import { STARTER_ITEMS } from '@/components/game/InventoryPanel'
+import DayNightOverlay from '@/components/game/DayNightOverlay'
+import { AmbientAudio, getTimeEnvironment } from '@/lib/ambient-audio'
 
 const GameCanvas       = dynamicImport(() => import('@/components/game/GameCanvas'),       { ssr: false })
 const BuildingInterior = dynamicImport(() => import('@/components/game/BuildingInterior'), { ssr: false })
@@ -35,8 +37,9 @@ export default function GamePage() {
   const [inventory, setInventory] = useState<Item[]>(STARTER_ITEMS)
   const [gameTime, setGameTime] = useState<{ hour: number; minute: number }>({ hour: 8, minute: 0 })
   const [nearDoor, setNearDoor] = useState<BuildingEntry | null>(null)
+  const audioRef = useRef<AmbientAudio | null>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const inputRef    = useRef<HTMLInputElement>(null)
   const chatNpcRef = useRef<NpcSoul | null>(null)
   const messagesAtOpenRef = useRef<number>(0)
 
@@ -88,7 +91,7 @@ export default function GamePage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [], characterName: character?.name,
-          gameId, userId, gameDay: game?.day,
+          gameId, userId, gameDay: game?.day, gameHour: gameTime.hour,
         }),
       })
       const json = await res.json()
@@ -139,7 +142,7 @@ export default function GamePage() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         messages: next, characterName: character?.name,
-        gameId, userId, gameDay: game?.day,
+        gameId, userId, gameDay: game?.day, gameHour: gameTime.hour,
       }),
     })
     const json = await res.json()
@@ -175,16 +178,38 @@ export default function GamePage() {
   )
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: '#0a0908', overflow: 'hidden' }}>
+    <div
+      style={{ position: 'fixed', inset: 0, background: '#0a0908', overflow: 'hidden' }}
+      onPointerDown={() => {
+        // Unlock AudioContext on first interaction (browser autoplay policy)
+        if (!audioRef.current) {
+          audioRef.current = new AmbientAudio()
+          audioRef.current.setEnvironment(getTimeEnvironment(gameTime.hour))
+        } else {
+          audioRef.current.resume()
+        }
+      }}
+    >
+      {/* Day/night overlay */}
+      <DayNightOverlay hour={gameTime.hour} minute={gameTime.minute} />
+
       {/* Town world — hidden when inside a building */}
       {character && !activeBuilding && (
         <GameCanvas
           character={character}
           npcs={NPC_LIST}
           onNpcInteract={openChat}
-          onEnterBuilding={setActiveBuilding}
-          onClockTick={(h, m) => setGameTime({ hour: h, minute: m })}
+          onClockTick={(h, m) => {
+            setGameTime({ hour: h, minute: m })
+            if (audioRef.current) {
+              audioRef.current.setEnvironment(getTimeEnvironment(h))
+            }
+          }}
           onNearDoor={setNearDoor}
+          onEnterBuilding={(b) => {
+            setActiveBuilding(b)
+            audioRef.current?.setEnvironment('indoor')
+          }}
         />
       )}
 
@@ -198,7 +223,7 @@ export default function GamePage() {
             building={activeBuilding}
             characterName={character.name}
             npc={insideNpcId ? NPCS[insideNpcId] : undefined}
-            onExit={() => setActiveBuilding(null)}
+            onExit={() => { setActiveBuilding(null); audioRef.current?.setEnvironment(getTimeEnvironment(gameTime.hour)) }}
             onNpcInteract={openChat}
           />
         )

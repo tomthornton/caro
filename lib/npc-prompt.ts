@@ -144,11 +144,31 @@ const OPENING_SCENARIOS: Record<string, string> = {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+export function buildTownContext(npcId: string, hour: number, allNpcs: NpcSoul[]): string {
+  // Import here to avoid circular deps
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { getCurrentEntry } = require('./npc-schedule') as typeof import('./npc-schedule')
+
+  const lines = allNpcs
+    .filter(n => n.id !== npcId)
+    .map(n => {
+      const entry = getCurrentEntry(n.id, hour)
+      if (!entry) return null
+      const loc = entry.inside ? `inside ${entry.inside}` : 'out in town'
+      return `${n.name} (${n.role}): ${entry.activity} — ${loc}`
+    })
+    .filter(Boolean)
+
+  if (!lines.length) return ''
+  return `\nRight now in Caro:\n${lines.join('\n')}`
+}
+
 export function buildSystemPrompt(
   npc: NpcSoul,
   state: NpcDynamicState,
   characterName: string,
   gameDay?: number,
+  townContext?: string,
 ): string {
   const brief = VOICE_BRIEFS[npc.id] || `You are ${npc.name}, ${npc.role} in the small town of Caro.`
   const met = state.timesSpoken === 0
@@ -167,10 +187,11 @@ export function buildSystemPrompt(
     ? `\nThis is the first time you've met ${characterName}. You don't know them yet.`
     : `\n${characterName} is ${trustLabel(state.trust)} to you (you've spoken ${state.timesSpoken} time${state.timesSpoken !== 1 ? 's' : ''}).${state.memorySummary ? ` What you remember: ${state.memorySummary}` : ''}`
 
-  const dayNote = gameDay ? `\nIt's day ${gameDay} in Caro.` : ''
+  const dayNote  = gameDay ? `\nIt's day ${gameDay} in Caro.` : ''
+  const townNote = townContext ? `\n${townContext}` : ''
 
   return `${brief}
-${moodNote}${relationshipNote}${dayNote}
+${moodNote}${relationshipNote}${dayNote}${townNote}
 
 RULES — read these carefully:
 - You are a person, not an assistant. You have your own concerns, your own day, your own history.

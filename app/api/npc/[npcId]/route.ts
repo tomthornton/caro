@@ -2,7 +2,9 @@ import Anthropic from '@anthropic-ai/sdk'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { NPCS } from '@/lib/npcs'
-import { buildSystemPrompt, getOpeningScenario, evaluateConversationImpact, DEFAULT_STATE, NpcDynamicState } from '@/lib/npc-prompt'
+import { buildSystemPrompt, buildTownContext, getOpeningScenario, evaluateConversationImpact, DEFAULT_STATE, NpcDynamicState } from '@/lib/npc-prompt'
+import { NPC_LIST } from '@/lib/npcs'
+import { getCurrentEntry } from '@/lib/npc-schedule'
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,7 +16,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ npc
   const npc = NPCS[npcId]
   if (!npc) return NextResponse.json({ error: 'NPC not found' }, { status: 404 })
 
-  const { messages, characterName, gameId, userId, gameDay, isClosing } = await req.json()
+  const { messages, characterName, gameId, userId, gameDay, gameHour, isClosing } = await req.json()
 
   // ── Load dynamic state ────────────────────────────────────────────────────
   let state: NpcDynamicState = { ...DEFAULT_STATE }
@@ -80,7 +82,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ npc
   }
 
   // ── Build prompt and call Claude ──────────────────────────────────────────
-  const systemPrompt = buildSystemPrompt(npc, state, characterName || 'Stranger', gameDay)
+  const currentHour = typeof gameHour === 'number' ? gameHour : 8
+  const townContext = buildTownContext(npcId, currentHour, NPC_LIST)
+  const systemPrompt = buildSystemPrompt(npc, state, characterName || 'Stranger', gameDay, townContext)
 
   try {
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
