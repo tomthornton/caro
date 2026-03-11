@@ -22,6 +22,8 @@ const InventoryPanel      = dynamicImport(() => import('@/components/game/Invent
 const RelationshipPanel   = dynamicImport(() => import('@/components/game/RelationshipPanel'),   { ssr: false })
 const NoticeBoardPanel    = dynamicImport(() => import('@/components/game/NoticeBoardPanel'),    { ssr: false })
 const QuestLog            = dynamicImport(() => import('@/components/game/QuestLog'),            { ssr: false })
+const TownMap             = dynamicImport(() => import('@/components/game/TownMap'),             { ssr: false })
+const WeatherOverlay      = dynamicImport(() => import('@/components/game/WeatherOverlay'),      { ssr: false })
 
 type Msg = { role: 'user' | 'assistant'; content: string }
 
@@ -43,9 +45,10 @@ export default function GamePage() {
   const [inventory, setInventory] = useState<Item[]>(STARTER_ITEMS)
   const [gameTime, setGameTime] = useState<{ hour: number; minute: number }>({ hour: 8, minute: 0 })
   const [nearDoor, setNearDoor]         = useState<BuildingEntry | null>(null)
-  const [relPanelOpen, setRelPanel]     = useState(false)
-  const [questLogOpen, setQuestLog]     = useState(false)
+  const [relPanelOpen, setRelPanel]       = useState(false)
+  const [questLogOpen, setQuestLog]       = useState(false)
   const [noticeBoardOpen, setNoticeBoard] = useState(false)
+  const [townMapOpen, setTownMap]         = useState(false)
   const [showSleepTransition, setShowSleep] = useState(false)
   const [questState, setQuestState]     = useState<QuestState | null>(null)
   const [dayEvent, setDayEvent]         = useState<GameEvent | null>(null)
@@ -164,9 +167,15 @@ export default function GamePage() {
     }, { onConflict: 'game_id,npc_id,user_id' })
   }
 
-  const send = async () => {
-    if (!input.trim() || !chatNpc || sending) return
-    const userMsg: Msg = { role: 'user', content: input.trim() }
+  const send = async (opts?: { giftItemId?: string; giftItemName?: string }) => {
+    if (!chatNpc || sending) return
+    if (!opts?.giftItemId && !input.trim()) return
+
+    const userContent = opts?.giftItemId
+      ? `*Hands you a ${opts.giftItemName}*`
+      : input.trim()
+
+    const userMsg: Msg = { role: 'user', content: userContent }
     const next = [...messages, userMsg]
     setMessages(next); setInput(''); setSending(true)
 
@@ -175,15 +184,40 @@ export default function GamePage() {
       body: JSON.stringify({
         messages: next, characterName: character?.name,
         gameId, userId, gameDay: game?.day, gameHour: gameTime.hour,
+        questContext: questState ? buildQuestContext(chatNpc.id, questState) : '',
+        giftItemId:   opts?.giftItemId,
+        giftItemName: opts?.giftItemName,
       }),
     })
     const json = await res.json()
     if (json.trust !== undefined) setTrust(json.trust)
+
+    // Handle NPC gift back
+    if (json.giftGiven && json.giftGiven.id) {
+      const newItem: Item = {
+        id: json.giftGiven.id, name: json.giftGiven.name,
+        emoji: '🎁', type: 'gift', quantity: 1,
+        description: json.giftGiven.description, value: 5,
+      }
+      setInventory(inv => {
+        const existing = inv.find(i => i.id === newItem.id)
+        if (existing) return inv.map(i => i.id === newItem.id ? { ...i, quantity: i.quantity + 1 } : i)
+        return [...inv, newItem]
+      })
+    }
+
+    // Remove gifted item from inventory
+    if (opts?.giftItemId) {
+      setInventory(inv => inv.map(i => i.id === opts.giftItemId ? { ...i, quantity: i.quantity - 1 } : i).filter(i => i.quantity > 0))
+    }
+
     const final: Msg[] = [...next, { role: 'assistant', content: json.reply }]
     setMessages(final)
     await saveChat(chatNpc.id, final)
     setSending(false)
   }
+
+  const giftableItems = inventory.filter(i => ['food','gift','material'].includes(i.type) && i.quantity > 0)
 
   const handleSpecialAction = (action: SpecialAction) => {
     if (action === 'noticeboard') setNoticeBoard(true)
@@ -288,6 +322,14 @@ export default function GamePage() {
         )
       })()}
 
+      {/* Weather overlay */}
+      <WeatherOverlay event={dayEvent} />
+
+      {/* Town map */}
+      {townMapOpen && (
+        <TownMap gameHour={gameTime.hour} gameDay={game?.day ?? 1} onClose={() => setTownMap(false)} />
+      )}
+
       {/* Relationship panel */}
       {relPanelOpen && userId && (
         <RelationshipPanel gameId={gameId} userId={userId} onClose={() => setRelPanel(false)} />
@@ -375,6 +417,11 @@ export default function GamePage() {
               📋 Quest
             </button>
           )}
+          <button onPointerDown={() => setTownMap(true)}
+            style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.25)', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            title="Town Map">
+            🗺️
+          </button>
           <button onPointerDown={() => setRelPanel(true)}
             style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.25)', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             title="Relationships">
@@ -534,6 +581,27 @@ export default function GamePage() {
               )}
             </div>
 
+            {/* Gift items row */}
+            {giftableItems.length > 0 && (
+              <div style={{ padding: '8px 14px 0', display: 'flex', gap: 6, overflowX: 'auto', flexShrink: 0 }}>
+                {giftableItems.map(item => (
+                  <button
+                    key={item.id}
+                    onPointerDown={() => send({ giftItemId: item.id, giftItemName: item.name })}
+                    disabled={sending}
+                    style={{
+                      flexShrink: 0, padding: '4px 10px', borderRadius: 99,
+                      background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.25)',
+                      color: 'rgba(245,240,232,0.7)', fontSize: 11, cursor: 'pointer', whiteSpace: 'nowrap',
+                    }}
+                    title={item.description}
+                  >
+                    {item.emoji} Give {item.name} ×{item.quantity}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Input */}
             <div style={{ padding: '10px 14px 20px', display: 'flex', gap: 10, borderTop: '1px solid #1a1814', flexShrink: 0 }}>
               <input
@@ -544,7 +612,7 @@ export default function GamePage() {
                 placeholder={`Talk to ${chatNpc.name}...`}
                 style={{ flex: 1, background: '#1a1814', border: '1px solid #2e2a22', borderRadius: 12, padding: '12px 14px', fontSize: 14, color: '#f5f0e8', outline: 'none' }}
               />
-              <button onClick={send} disabled={!input.trim() || sending}
+              <button onClick={() => send()} disabled={!input.trim() || sending}
                 style={{
                   width: 44, height: 44, borderRadius: 12, border: 'none',
                   cursor: input.trim() && !sending ? 'pointer' : 'default',

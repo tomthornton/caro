@@ -16,7 +16,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ npc
   const npc = NPCS[npcId]
   if (!npc) return NextResponse.json({ error: 'NPC not found' }, { status: 404 })
 
-  const { messages, characterName, gameId, userId, gameDay, gameHour, isClosing, questContext } = await req.json()
+  const { messages, characterName, gameId, userId, gameDay, gameHour, isClosing, questContext, giftItemId, giftItemName } = await req.json()
 
   // ── Load dynamic state ────────────────────────────────────────────────────
   let state: NpcDynamicState = { ...DEFAULT_STATE }
@@ -84,7 +84,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ npc
   // ── Build prompt and call Claude ──────────────────────────────────────────
   const currentHour = typeof gameHour === 'number' ? gameHour : 8
   const townContext = buildTownContext(npcId, currentHour, NPC_LIST)
-  const fullContext  = [townContext, questContext].filter(Boolean).join('\n')
+
+  // Build gift context
+  const giftContext = giftItemId
+    ? `\nThe player just gave you a ${giftItemName ?? giftItemId} as a gift. React naturally to this in your next response. It meaningfully improves how you feel toward them right now. If you feel generous and trust is decent (>30), you may optionally include exactly one line at the very end of your response in this format: [GIFT:item_name:description] — for example [GIFT:herb_bundle:A small bundle of dried sage from my garden.]. Only include this if it feels natural and in-character.`
+    : ''
+
+  const fullContext  = [townContext, questContext, giftContext].filter(Boolean).join('\n')
   const systemPrompt = buildSystemPrompt(npc, state, characterName || 'Stranger', gameDay, fullContext || undefined)
 
   try {
@@ -103,8 +109,30 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ npc
       })),
     })
 
-    const reply = response.content[0].type === 'text' ? response.content[0].text : ''
-    return NextResponse.json({ reply, trust: state.trust, fondness: state.fondness })
+    let reply = response.content[0].type === 'text' ? response.content[0].text : ''
+
+    // Parse [GIFT:item:desc] marker
+    let giftGiven: { id: string; name: string; description: string } | undefined
+    const giftMatch = reply.match(/\[GIFT:([^:]+):([^\]]+)\]/)
+    if (giftMatch) {
+      giftGiven = { id: giftMatch[1].trim().toLowerCase().replace(/\s+/g, '_'), name: giftMatch[1].trim(), description: giftMatch[2].trim() }
+      reply = reply.replace(giftMatch[0], '').trim()
+    }
+
+    // Apply trust boost if player gave a gift
+    let newTrust = state.trust
+    if (giftItemId && gameId && userId) {
+      newTrust = Math.min(100, state.trust + 8)
+      await supabaseAdmin.from('npc_state').upsert({
+        game_id: gameId, npc_id: npcId, user_id: userId,
+        trust: newTrust, fondness: state.fondness, mood: state.mood,
+        energy: state.energy, stress: state.stress, times_spoken: state.timesSpoken,
+        history: state.history, memory_summary: state.memorySummary,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'game_id,npc_id,user_id' })
+    }
+
+    return NextResponse.json({ reply, trust: newTrust, fondness: state.fondness, giftGiven })
 
   } catch {
     // Fallback: character-accurate first lines
