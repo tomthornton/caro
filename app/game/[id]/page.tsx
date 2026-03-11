@@ -541,20 +541,28 @@ export default function GamePage() {
       {menuOpen && character && game && (
         <PhoneMenu
           onClose={() => setMenuOpen(false)}
-          onOpenQuests={() => setQuestLog(true)}
-          onOpenRelations={() => setRelPanel(true)}
-          onOpenMap={() => setTownMap(true)}
-          onOpenInventory={() => setInventoryOpen(true)}
-          onOpenBoard={() => setNoticeBoard(true)}
           onRest={handleSleep}
           onExitGame={() => router.push('/dashboard')}
+          character={character}
           characterName={character.name}
           gameDay={game.day ?? 1}
           townName={(game as any).town_name || game.name}
           seed={game.world_seed ?? 0}
           hour={gameTime.hour}
           minute={gameTime.minute}
-          activeQuestTitle={questState ? getActiveQuest(questState)?.title : undefined}
+          gameId={gameId}
+          userId={userId ?? ''}
+          npcs={npcs}
+          questState={questState}
+          trustMap={trustMap}
+          inventory={inventory}
+          dayEvent={dayEvent}
+          onStartQuest={(id) => {
+            if (!questState) return
+            const next = startQuest(questState, id)
+            setQuestState(next)
+            saveQuestState(gameId, next)
+          }}
         />
       )}
 
