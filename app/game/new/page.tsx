@@ -4,6 +4,7 @@ export const dynamic = 'force-dynamic'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
+import { formatSeed, parseSeed, generateWorld } from '@/lib/world-gen'
 
 const WORLD_VIBES = [
   { id: 'quiet',    label: 'Quiet Valley',    desc: 'Peaceful. The kind of place people move to on purpose.',  emoji: '🌄' },
@@ -13,18 +14,34 @@ const WORLD_VIBES = [
 
 export default function NewGame() {
   const router = useRouter()
-  const [name, setName] = useState('')
-  const [vibe, setVibe] = useState('quiet')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [name, setName]         = useState('')
+  const [vibe, setVibe]         = useState('quiet')
+  const [seedInput, setSeedInput] = useState('')
+  const [loading, setLoading]   = useState(false)
+  const [error, setError]       = useState('')
+
+  const randomSeed = () => Math.floor(Math.random() * 999999) + 1
 
   const create = async () => {
     if (!name.trim()) { setError('Give your world a name.'); return }
     setLoading(true); setError('')
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) { router.push('/'); return }
+
+    // Resolve seed
+    const parsedCustom = seedInput.trim() ? parseSeed(seedInput.trim()) : null
+    const seed = parsedCustom !== null ? parsedCustom : randomSeed()
+
+    // Pre-generate world config
+    const worldConfig = generateWorld(seed, vibe)
+
     const { data: game, error: err } = await supabase.from('games')
-      .insert({ user_id: session.user.id, name: name.trim(), world_seed: Math.floor(Math.random() * 1000000), day: 1 })
+      .insert({
+        user_id: session.user.id, name: name.trim(),
+        world_seed: seed, vibe, day: 1,
+        saved_hour: 8, saved_minute: 0,
+        world_config: worldConfig, town_name: worldConfig.townName,
+      })
       .select().single()
     if (err || !game) { setError('Something went wrong.'); setLoading(false); return }
     router.push(`/game/${game.id}/character`)
@@ -81,6 +98,20 @@ export default function NewGame() {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Seed input */}
+        <div style={{ marginBottom: 28 }}>
+          <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'rgba(201,168,76,0.7)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+            World Seed <span style={{ color: 'rgba(245,240,232,0.3)', textTransform: 'none', fontWeight: 400 }}>(optional — leave blank for random)</span>
+          </label>
+          <input value={seedInput} onChange={e => setSeedInput(e.target.value)}
+            placeholder="e.g. 047291  — share with friends to generate the same world"
+            style={{
+              width: '100%', background: '#1a1814', border: '1px solid #2e2a22',
+              borderRadius: 12, padding: '12px 16px', fontSize: 14, color: '#f5f0e8',
+              outline: 'none', boxSizing: 'border-box',
+            }} />
         </div>
 
         {error && <p style={{ color: '#f87171', fontSize: 13, textAlign: 'center', marginBottom: 16 }}>{error}</p>}

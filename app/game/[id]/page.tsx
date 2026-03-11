@@ -15,6 +15,8 @@ import { AmbientAudio, getTimeEnvironment } from '@/lib/ambient-audio'
 import { loadQuestState, saveQuestState, startQuest, completeObjective, getActiveQuest, buildQuestContext, type QuestState } from '@/lib/quests'
 import { getDayEvent, type GameEvent } from '@/lib/random-events'
 import type { SpecialAction } from '@/components/game/GameCanvas'
+import { generateWorld, mergeNpcOverride, formatSeed, type WorldConfig } from '@/lib/world-gen'
+import { MultiplayerSession, DEFAULT_PLAYER_PALETTE, type PlayerPresence } from '@/lib/multiplayer'
 
 const GameCanvas          = dynamicImport(() => import('@/components/game/GameCanvas'),          { ssr: false })
 const BuildingInterior    = dynamicImport(() => import('@/components/game/BuildingInterior'),    { ssr: false })
@@ -24,6 +26,7 @@ const NoticeBoardPanel    = dynamicImport(() => import('@/components/game/Notice
 const QuestLog            = dynamicImport(() => import('@/components/game/QuestLog'),            { ssr: false })
 const TownMap             = dynamicImport(() => import('@/components/game/TownMap'),             { ssr: false })
 const WeatherOverlay      = dynamicImport(() => import('@/components/game/WeatherOverlay'),      { ssr: false })
+const PhoneMenu           = dynamicImport(() => import('@/components/game/PhoneMenu'),           { ssr: false })
 
 type Msg = { role: 'user' | 'assistant'; content: string }
 
@@ -53,7 +56,12 @@ export default function GamePage() {
   const [questState, setQuestState]     = useState<QuestState | null>(null)
   const [dayEvent, setDayEvent]         = useState<GameEvent | null>(null)
   const [trustMap, setTrustMap]         = useState<Record<string, number>>({})
-  const audioRef = useRef<AmbientAudio | null>(null)
+  const [npcs, setNpcs]                 = useState<NpcSoul[]>(NPC_LIST)
+  const [otherPlayers, setOtherPlayers] = useState<PlayerPresence[]>([])
+  const [worldConfig, setWorldConfig]   = useState<WorldConfig | null>(null)
+  const audioRef     = useRef<AmbientAudio | null>(null)
+  const multiRef     = useRef<MultiplayerSession | null>(null)
+  const positionSaveRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
   const inputRef    = useRef<HTMLInputElement>(null)
   const chatNpcRef = useRef<NpcSoul | null>(null)
@@ -72,13 +80,41 @@ export default function GamePage() {
       if (!g) { router.push('/dashboard'); return }
       setGame(g); setCharacter(c)
 
-      // Load quest state + day event
+      // ── Restore saved game clock ─────────────────────────────────────────
+      if (g?.saved_hour !== undefined && g?.saved_hour !== null) {
+        setGameTime({ hour: g.saved_hour, minute: g.saved_minute ?? 0 })
+      }
+
+      // ── World generation from seed ───────────────────────────────────────
+      if (g) {
+        const seed = g.world_seed ?? 0
+        let config: WorldConfig
+
+        // Use stored world_config if available, else generate from seed
+        if ((g as any).world_config) {
+          config = (g as any).world_config as WorldConfig
+        } else {
+          config = generateWorld(seed, (g as any).vibe ?? 'quiet')
+          // Store for consistency (best effort)
+          supabase.from('games').update({ world_config: config, town_name: config.townName }).eq('id', g.id).then(() => {})
+        }
+        setWorldConfig(config)
+
+        // Build merged NPC list
+        const mergedNpcs = NPC_LIST.map(base => {
+          const override = config.npcs.find(n => n.id === base.id)
+          return override ? mergeNpcOverride(base, override) : base
+        })
+        setNpcs(mergedNpcs)
+      }
+
+      // ── Quest state + day event ──────────────────────────────────────────
       if (g) {
         setQuestState(loadQuestState(g.id))
         setDayEvent(getDayEvent(g.id, g.day ?? 1))
       }
 
-      // Load trust map for quest unlock checks
+      // ── Trust map for quest unlock checks ───────────────────────────────
       if (session.user.id && g) {
         const { data: npcStates } = await supabase
           .from('npc_state').select('npc_id, trust')
@@ -89,14 +125,55 @@ export default function GamePage() {
           setTrustMap(tm)
         }
       }
-      // Load inventory from character record
+
+      // ── Inventory ─────────────────────────────────────────────────────────
       if (c.inventory && Array.isArray(c.inventory) && (c.inventory as any[]).length > 0) {
         setInventory(c.inventory as Item[])
       }
+
+      // ── Multiplayer ───────────────────────────────────────────────────────
+      const palette = DEFAULT_PLAYER_PALETTE
+      const multi = new MultiplayerSession({
+        gameId,
+        userId: session.user.id,
+        characterName: c.name,
+        palette,
+        onPlayersChange: (players) => setOtherPlayers(players),
+      })
+      multi.connect()
+      multiRef.current = multi
+
       setLoading(false)
     }
     load()
+    return () => {
+      multiRef.current?.disconnect()
+      if (positionSaveRef.current) clearTimeout(positionSaveRef.current)
+    }
   }, [gameId, router])
+
+  // ── Save game clock when hour changes ─────────────────────────────────────
+  useEffect(() => {
+    if (!gameId || !game) return
+    supabase.from('games')
+      .update({ saved_hour: gameTime.hour, saved_minute: gameTime.minute })
+      .eq('id', gameId)
+      .then(() => {})
+  }, [gameTime.hour])
+
+  // ── Handle player position update from Phaser ─────────────────────────────
+  const handlePositionUpdate = (x: number, y: number) => {
+    if (!character) return
+    // Update multiplayer presence
+    multiRef.current?.forceUpdate(x, y, 'down')
+    // Debounce Supabase write
+    if (positionSaveRef.current) clearTimeout(positionSaveRef.current)
+    positionSaveRef.current = setTimeout(async () => {
+      await supabase.from('characters')
+        .update({ position: { x: Math.round(x), y: Math.round(y) } })
+        .eq('id', character.id)
+    }, 1000)
+  }
 
   useEffect(() => {
     if (messagesRef.current) {
@@ -289,7 +366,7 @@ export default function GamePage() {
       {character && !activeBuilding && (
         <GameCanvas
           character={character}
-          npcs={NPC_LIST}
+          npcs={npcs}
           onNpcInteract={openChat}
           onClockTick={(h, m) => {
             setGameTime({ hour: h, minute: m })
@@ -299,6 +376,12 @@ export default function GamePage() {
           }}
           onNearDoor={setNearDoor}
           onSpecialAction={handleSpecialAction}
+          onPositionUpdate={handlePositionUpdate}
+          initialHour={game?.saved_hour ?? gameTime.hour}
+          initialMinute={game?.saved_minute ?? gameTime.minute}
+          initialX={(character.position as any)?.x}
+          initialY={(character.position as any)?.y}
+          otherPlayers={otherPlayers}
           onEnterBuilding={(b) => {
             setActiveBuilding(b)
             audioRef.current?.setEnvironment('indoor')
@@ -397,8 +480,8 @@ export default function GamePage() {
         pointerEvents: 'none',
       }}>
         <div style={{ pointerEvents: 'auto' }}>
-          <span style={{ fontFamily: 'Cinzel, serif', fontWeight: 900, fontSize: 18, color: '#c9a84c', letterSpacing: '0.08em' }}>{game?.name}</span>
-          <span style={{ fontSize: 11, color: 'rgba(245,240,232,0.4)', marginLeft: 10, fontWeight: 500 }}>Day {game?.day}</span>
+          <span style={{ fontFamily: 'Cinzel, serif', fontWeight: 900, fontSize: 18, color: '#c9a84c', letterSpacing: '0.08em' }}>{(game as any)?.town_name || game?.name}</span>
+          <span style={{ fontSize: 11, color: 'rgba(245,240,232,0.4)', marginLeft: 8, fontWeight: 500 }}>Day {game?.day}</span>
           <span style={{ fontSize: 11, color: 'rgba(201,168,76,0.6)', marginLeft: 8, fontWeight: 600, fontFamily: 'monospace' }}>
             {String(gameTime.hour).padStart(2,'0')}:{String(gameTime.minute).padStart(2,'0')}
           </span>
@@ -410,33 +493,19 @@ export default function GamePage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 99, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.2)', fontSize: 12, color: 'rgba(245,240,232,0.7)', fontWeight: 600 }}>
             🪙 {character?.gold}
           </div>
-          {/* Quest indicator */}
-          {questState && getActiveQuest(questState) && (
-            <button onPointerDown={() => setQuestLog(true)}
-              style={{ padding: '0 10px', height: 34, borderRadius: 10, background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#c9a84c', whiteSpace: 'nowrap' }}>
-              📋 Quest
-            </button>
-          )}
-          <button onPointerDown={() => setTownMap(true)}
-            style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.25)', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            title="Town Map">
-            🗺️
-          </button>
-          <button onPointerDown={() => setRelPanel(true)}
-            style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.25)', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            title="Relationships">
-            ❤️
-          </button>
-          <button onPointerDown={() => setInventoryOpen(true)}
-            style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.25)', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            title="Inventory [I]">
-            🎒
-          </button>
-          <button onClick={() => setMenuOpen(true)}
-            style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.25)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 4 }}>
-            <div style={{ width: 14, height: 1.5, background: '#c9a84c', borderRadius: 99 }} />
-            <div style={{ width: 14, height: 1.5, background: '#c9a84c', borderRadius: 99 }} />
-            <div style={{ width: 14, height: 1.5, background: '#c9a84c', borderRadius: 99 }} />
+          {/* Phone button — opens the phone menu */}
+          <button onPointerDown={() => setMenuOpen(true)}
+            style={{
+              width: 38, height: 38, borderRadius: 12,
+              background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.3)',
+              cursor: 'pointer', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              position: 'relative',
+            }}
+            title="Menu [M]">
+            📱
+            {questState && getActiveQuest(questState) && (
+              <div style={{ position: 'absolute', top: -4, right: -4, width: 10, height: 10, borderRadius: '50%', background: '#d45555', border: '1.5px solid rgba(0,0,0,0.8)' }} />
+            )}
           </button>
         </div>
       </div>
@@ -468,62 +537,25 @@ export default function GamePage() {
         </div>
       )}
 
-      {/* ── GAME MENU ── */}
-      {menuOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}
-          onClick={() => setMenuOpen(false)}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ width: 280, background: '#111009', borderLeft: '1px solid #2e2a22', height: '100%', padding: '24px 20px', display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 28 }}>
-              <span style={{ fontFamily: 'Cinzel, serif', fontSize: 16, fontWeight: 900, color: '#c9a84c', letterSpacing: '0.08em' }}>MENU</span>
-              <button onClick={() => setMenuOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(245,240,232,0.4)', fontSize: 20, lineHeight: 1 }}>✕</button>
-            </div>
-            <div style={{ background: '#1a1814', border: '1px solid #2e2a22', borderRadius: 14, padding: '16px', marginBottom: 20 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#f5f0e8', marginBottom: 2 }}>{character?.name}</div>
-              <div style={{ fontSize: 11, color: '#c9a84c', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>{character?.archetype}</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
-                {character && Object.entries(character.stats).map(([k, v]) => (
-                  <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ fontSize: 13 }}>{STAT_LABELS[k] || '•'}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', gap: 2 }}>
-                        {Array.from({ length: 10 }).map((_, i) => (
-                          <div key={i} style={{ flex: 1, height: 3, borderRadius: 99, background: i < (v as number) ? '#c9a84c' : 'rgba(255,255,255,0.08)' }} />
-                        ))}
-                      </div>
-                    </div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#c9a84c', minWidth: 14, textAlign: 'right' }}>{v as number}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-              <button onPointerDown={() => { setQuestLog(true); setMenuOpen(false) }}
-                style={{ width: '100%', padding: '11px 0', borderRadius: 10, border: '1px solid rgba(201,168,76,0.2)', cursor: 'pointer', background: 'rgba(201,168,76,0.06)', color: '#c9a84c', fontWeight: 600, fontSize: 13 }}>
-                📋 Quest Log
-              </button>
-              <button onPointerDown={() => { setRelPanel(true); setMenuOpen(false) }}
-                style={{ width: '100%', padding: '11px 0', borderRadius: 10, border: '1px solid rgba(201,168,76,0.2)', cursor: 'pointer', background: 'rgba(201,168,76,0.06)', color: '#c9a84c', fontWeight: 600, fontSize: 13 }}>
-                ❤️ Relationships
-              </button>
-              <button onPointerDown={() => handleSleep()}
-                style={{ width: '100%', padding: '11px 0', borderRadius: 10, border: '1px solid rgba(201,168,76,0.2)', cursor: 'pointer', background: 'rgba(201,168,76,0.06)', color: '#c9a84c', fontWeight: 600, fontSize: 13 }}>
-                💤 Rest Until Morning
-              </button>
-            </div>
-
-            <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <button onClick={() => setMenuOpen(false)}
-                style={{ width: '100%', padding: '13px 0', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'rgba(201,168,76,0.1)', color: '#c9a84c', fontWeight: 600, fontSize: 14 }}>
-                Resume
-              </button>
-              <button onClick={() => router.push('/dashboard')}
-                style={{ width: '100%', padding: '13px 0', borderRadius: 12, border: '1px solid rgba(248,113,113,0.2)', cursor: 'pointer', background: 'rgba(248,113,113,0.06)', color: '#f87171', fontWeight: 600, fontSize: 14 }}>
-                Exit to Dashboard
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* ── PHONE MENU ── */}
+      {menuOpen && character && game && (
+        <PhoneMenu
+          onClose={() => setMenuOpen(false)}
+          onOpenQuests={() => setQuestLog(true)}
+          onOpenRelations={() => setRelPanel(true)}
+          onOpenMap={() => setTownMap(true)}
+          onOpenInventory={() => setInventoryOpen(true)}
+          onOpenBoard={() => setNoticeBoard(true)}
+          onRest={handleSleep}
+          onExitGame={() => router.push('/dashboard')}
+          characterName={character.name}
+          gameDay={game.day ?? 1}
+          townName={(game as any).town_name || game.name}
+          seed={game.world_seed ?? 0}
+          hour={gameTime.hour}
+          minute={gameTime.minute}
+          activeQuestTitle={questState ? getActiveQuest(questState)?.title : undefined}
+        />
       )}
 
       {/* ── CHAT MODAL ── */}

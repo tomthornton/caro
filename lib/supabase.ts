@@ -12,12 +12,17 @@ export type Profile = {
 }
 
 export type Game = {
-  id: string
-  user_id: string
-  name: string
-  world_seed: number
-  day: number
-  created_at: string
+  id:            string
+  user_id:       string
+  name:          string
+  world_seed:    number
+  day:           number
+  saved_hour:    number
+  saved_minute:  number
+  world_config?: any
+  town_name?:    string
+  vibe?:         string
+  created_at:    string
   last_played_at: string
 }
 

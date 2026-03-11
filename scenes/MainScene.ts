@@ -22,6 +22,7 @@ import {
   type BuildingEntry,
 } from '@/game/GameConfig'
 import { GameEvents } from '@/game/GameEvents'
+import type { PlayerPresence } from '@/lib/multiplayer'
 
 type NpcLabels = {
   name:  Phaser.GameObjects.Text
@@ -65,6 +66,14 @@ export class MainScene extends Phaser.Scene {
   gameMinute = 0
   clockAcc   = 0
 
+  // ── Persistence ──────────────────────────────────────────────────────────
+  positionSaveAcc = 0
+
+  // ── Multiplayer ───────────────────────────────────────────────────────────
+  otherPlayerSprites: Map<string, Phaser.GameObjects.Sprite>   = new Map()
+  otherPlayerNames:   Map<string, Phaser.GameObjects.Text>     = new Map()
+  otherPlayerTargets: Map<string, { x: number; y: number }>    = new Map()
+
   constructor() {
     super({ key: 'MainScene' })
   }
@@ -82,6 +91,10 @@ export class MainScene extends Phaser.Scene {
     const character = this.registry.get('character') as Character
     const textRes   = Math.ceil(window.devicePixelRatio * 2)
     const isMobile  = window.innerWidth < 768
+
+    // ── Restore saved game clock ──────────────────────────────────────────
+    this.gameHour   = this.registry.get('initialHour')   ?? 8
+    this.gameMinute = this.registry.get('initialMinute') ?? 0
 
     // ── Sprite sheets (synchronous — HTMLCanvasElement) ─────────────────
     const allKeys = [...npcs.map(n => n.id), 'player']
@@ -135,8 +148,10 @@ export class MainScene extends Phaser.Scene {
     })
 
     // ── Player ────────────────────────────────────────────────────────────
-    const sx = 9 * TILE * ZOOM + (TILE * ZOOM) / 2
-    const sy = 9 * TILE * ZOOM + (TILE * ZOOM) / 2
+    const defaultX = 9 * TILE * ZOOM + (TILE * ZOOM) / 2
+    const defaultY = 9 * TILE * ZOOM + (TILE * ZOOM) / 2
+    const sx = this.registry.get('initialX') ?? defaultX
+    const sy = this.registry.get('initialY') ?? defaultY
 
     this.playerBody = this.physics.add.image(sx, sy, '__DEFAULT')
       .setVisible(false)
@@ -205,6 +220,9 @@ export class MainScene extends Phaser.Scene {
       document.removeEventListener('focusout', onFocusOut)
     })
 
+    // ── Multiplayer: listen for other player updates ──────────────────────
+    this.game.events.on(GameEvents.OTHER_PLAYERS_UPDATE, this._handleOtherPlayers, this)
+
     // ── Mobile joystick ───────────────────────────────────────────────────
     if (isMobile) {
       const CH = this.scale.height
@@ -228,6 +246,13 @@ export class MainScene extends Phaser.Scene {
       this.gameMinute += 2
       if (this.gameMinute >= 60) { this.gameMinute -= 60; this.gameHour = (this.gameHour + 1) % 24 }
       this.game.events.emit(GameEvents.CLOCK_TICK, this.gameHour, this.gameMinute)
+    }
+
+    // ── Position save (every 5s) ─────────────────────────────────────────
+    this.positionSaveAcc += delta
+    if (this.positionSaveAcc >= 5000) {
+      this.positionSaveAcc = 0
+      this.game.events.emit(GameEvents.POSITION_UPDATE, this.playerBody.x, this.playerBody.y)
     }
 
     // ── Player input ───────────────────────────────────────────────────────
@@ -355,6 +380,9 @@ export class MainScene extends Phaser.Scene {
     })
     this.nearbySpecial = closestSpecial
 
+    // ── Other players ──────────────────────────────────────────────────────
+    this._tickOtherPlayers(delta)
+
     // ── Hint bubble ───────────────────────────────────────────────────────
     const isMob = window.innerWidth < 768
     if (closestSpecial) {
@@ -374,7 +402,72 @@ export class MainScene extends Phaser.Scene {
     }
   }
 
+  // ── Other player sprite interpolation ─────────────────────────────────────
+  // Smooth other players toward their broadcast position each frame
+  _tickOtherPlayers(delta: number) {
+    this.otherPlayerTargets.forEach((target, userId) => {
+      const spr = this.otherPlayerSprites.get(userId)
+      if (!spr) return
+      const dx = target.x - spr.x
+      const dy = target.y - spr.y
+      const d  = Math.sqrt(dx * dx + dy * dy)
+      if (d > 2) {
+        const spd = Math.min(d, 8 * (delta / 16))  // smooth lerp
+        spr.x += (dx / d) * spd
+        spr.y += (dy / d) * spd
+        spr.setDepth(spr.y)
+      }
+      const name = this.otherPlayerNames.get(userId)
+      if (name) name.setPosition(spr.x, spr.y - 38).setDepth(spr.y + 20)
+    })
+  }
+
   // ── Private helpers ───────────────────────────────────────────────────────
+
+  private _handleOtherPlayers(players: PlayerPresence[]) {
+    const textRes = Math.ceil(window.devicePixelRatio * 2)
+    const activeIds = new Set(players.map(p => p.userId))
+
+    // Remove players who left
+    this.otherPlayerSprites.forEach((spr, userId) => {
+      if (!activeIds.has(userId)) {
+        spr.destroy()
+        this.otherPlayerNames.get(userId)?.destroy()
+        this.otherPlayerSprites.delete(userId)
+        this.otherPlayerNames.delete(userId)
+        this.otherPlayerTargets.delete(userId)
+      }
+    })
+
+    // Add or update each other player
+    players.forEach(p => {
+      const texKey = `op_${p.userId.slice(0, 8)}`
+
+      // Generate sprite sheet if not exists
+      if (!this.textures.exists(texKey)) {
+        const canvas = generateSpriteCanvas(p.palette as any)
+        this.textures.addSpriteSheet(texKey, canvas as any, { frameWidth: FW, frameHeight: FH })
+        this._setupAnims(texKey)
+      }
+
+      if (!this.otherPlayerSprites.has(p.userId)) {
+        const spr = this.add.sprite(p.x, p.y, texKey, 0).setScale(ZOOM).setDepth(p.y)
+        const nameTag = this.add.text(p.x, p.y - 38, p.characterName, {
+          fontSize: '10px', fontStyle: 'bold', color: '#a0d0ff',
+          stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
+        }).setOrigin(0.5).setResolution(textRes).setDepth(p.y + 20)
+        this.otherPlayerSprites.set(p.userId, spr)
+        this.otherPlayerNames.set(p.userId, nameTag)
+      }
+
+      // Update target for interpolation
+      this.otherPlayerTargets.set(p.userId, { x: p.x, y: p.y })
+
+      // Play anim
+      const spr = this.otherPlayerSprites.get(p.userId)!
+      this._playAnim(spr, texKey, p.facing, false)
+    })
+  }
 
   private _getFacing(vx: number, vy: number): string {
     if (Math.abs(vx) > Math.abs(vy)) return vx > 0 ? 'right' : 'left'

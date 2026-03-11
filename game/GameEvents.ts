@@ -22,6 +22,12 @@ export const GameEvents = {
 
   /** Special interaction triggered — payload: 'noticeboard' | 'rest' */
   SPECIAL_ACTION:    'game:special_action',
+
+  /** Player position changed — payload: x: number, y: number (emitted every 5s) */
+  POSITION_UPDATE:   'game:position_update',
+
+  /** Other players in the same world updated — payload: PlayerPresence[] */
+  OTHER_PLAYERS_UPDATE: 'game:other_players',
 } as const
 
 export type GameEventName = typeof GameEvents[keyof typeof GameEvents]

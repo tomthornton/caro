@@ -3,6 +3,7 @@ export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { formatSeed } from '@/lib/world-gen'
 import { supabase, Game } from '@/lib/supabase'
 
 export default function Dashboard() {
@@ -71,9 +72,16 @@ export default function Dashboard() {
                   transition: 'border-color 0.2s',
                 }}>
                 <div>
-                  <div style={{ fontSize: 17, fontWeight: 600, color: '#f5f0e8', marginBottom: 4 }}>{game.name}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                    <span style={{ fontSize: 17, fontWeight: 600, color: '#f5f0e8' }}>{game.name}</span>
+                    {(game as any).town_name && (
+                      <span style={{ fontSize: 11, color: 'rgba(201,168,76,0.6)', fontStyle: 'italic' }}>
+                        {(game as any).town_name}
+                      </span>
+                    )}
+                  </div>
                   <div style={{ fontSize: 12, color: 'rgba(245,240,232,0.35)', fontWeight: 500 }}>
-                    Day {game.day} · {formatDate(game.last_played_at)}
+                    Day {game.day} · Seed {formatSeed(game.world_seed ?? 0)} · {formatDate(game.last_played_at)}
                   </div>
                 </div>
                 <div style={{ color: 'rgba(201,168,76,0.6)', fontSize: 18 }}>›</div>

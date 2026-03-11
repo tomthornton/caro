@@ -5,58 +5,68 @@
  *
  * Responsibilities:
  *  1. Boot Phaser.Game with MainScene
- *  2. Populate game.registry with NPC + character data
+ *  2. Populate game.registry with NPC + character data + initial state
  *  3. Bridge Phaser events → React callbacks
- *
- * All game logic lives in scenes/MainScene.ts.
- * All shared config lives in game/GameConfig.ts.
- * All event names live in game/GameEvents.ts.
+ *  4. Forward other-player presence updates into Phaser
  */
 
 import { useEffect, useRef } from 'react'
-import type { Character }  from '@/lib/supabase'
-import type { NpcSoul }    from '@/lib/npcs'
-import { GameEvents }      from '@/game/GameEvents'
+import type { Character }        from '@/lib/supabase'
+import type { NpcSoul }          from '@/lib/npcs'
+import type { PlayerPresence }   from '@/lib/multiplayer'
+import { GameEvents }            from '@/game/GameEvents'
 import type { BuildingEntry, SpecialAction } from './GameCanvas.types'
 
-// Re-export types so other components can import from the same place
 export type { BuildingEntry, SpecialAction }
 
 type Props = {
-  character:       Character
-  npcs:            NpcSoul[]
-  onNpcInteract:   (npc: NpcSoul) => void
-  onEnterBuilding: (b: BuildingEntry) => void
-  onClockTick?:    (hour: number, minute: number) => void
-  onNearDoor?:     (door: BuildingEntry | null) => void
+  character:        Character
+  npcs:             NpcSoul[]
+  onNpcInteract:    (npc: NpcSoul) => void
+  onEnterBuilding:  (b: BuildingEntry) => void
+  onClockTick?:     (hour: number, minute: number) => void
+  onNearDoor?:      (door: BuildingEntry | null) => void
   onSpecialAction?: (action: SpecialAction) => void
+  onPositionUpdate?:(x: number, y: number) => void
+  // Initial state (restored from Supabase on load)
+  initialHour?:     number
+  initialMinute?:   number
+  initialX?:        number
+  initialY?:        number
+  // Multiplayer
+  otherPlayers?:    PlayerPresence[]
 }
 
 export default function GameCanvas({
-  character, npcs, onNpcInteract, onEnterBuilding, onClockTick, onNearDoor, onSpecialAction,
+  character, npcs,
+  onNpcInteract, onEnterBuilding, onClockTick, onNearDoor, onSpecialAction, onPositionUpdate,
+  initialHour, initialMinute, initialX, initialY,
+  otherPlayers = [],
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const gameRef      = useRef<any>(null)
 
-  // Keep callbacks in refs so scene event listeners never go stale
-  const cbNpcInteract   = useRef(onNpcInteract)
-  const cbEnterBuilding = useRef(onEnterBuilding)
-  const cbClockTick     = useRef(onClockTick)
-  const cbNearDoor      = useRef(onNearDoor)
-  const cbSpecialAction = useRef(onSpecialAction)
+  // Keep callbacks in refs so Phaser event listeners never go stale
+  const cbNpcInteract    = useRef(onNpcInteract)
+  const cbEnterBuilding  = useRef(onEnterBuilding)
+  const cbClockTick      = useRef(onClockTick)
+  const cbNearDoor       = useRef(onNearDoor)
+  const cbSpecialAction  = useRef(onSpecialAction)
+  const cbPositionUpdate = useRef(onPositionUpdate)
 
-  cbNpcInteract.current   = onNpcInteract
-  cbEnterBuilding.current = onEnterBuilding
-  cbClockTick.current     = onClockTick
-  cbNearDoor.current      = onNearDoor
-  cbSpecialAction.current = onSpecialAction
+  cbNpcInteract.current    = onNpcInteract
+  cbEnterBuilding.current  = onEnterBuilding
+  cbClockTick.current      = onClockTick
+  cbNearDoor.current       = onNearDoor
+  cbSpecialAction.current  = onSpecialAction
+  cbPositionUpdate.current = onPositionUpdate
 
   // ── Boot Phaser (once) ───────────────────────────────────────────────────
   useEffect(() => {
     if (!containerRef.current || gameRef.current) return
 
     const init = async () => {
-      const Phaser = (await import('phaser')).default
+      const Phaser       = (await import('phaser')).default
       const { MainScene } = await import('@/scenes/MainScene')
 
       const game = new Phaser.Game({
@@ -71,9 +81,13 @@ export default function GameCanvas({
         physics:         { default: 'arcade', arcade: { gravity: { x: 0, y: 0 }, debug: false } },
       })
 
-      // Populate registry before scene starts
-      game.registry.set('npcs',      npcs)
-      game.registry.set('character', character)
+      // ── Populate registry ────────────────────────────────────────────────
+      game.registry.set('npcs',          npcs)
+      game.registry.set('character',     character)
+      game.registry.set('initialHour',   initialHour   ?? 8)
+      game.registry.set('initialMinute', initialMinute ?? 0)
+      if (initialX !== undefined) game.registry.set('initialX', initialX)
+      if (initialY !== undefined) game.registry.set('initialY', initialY)
 
       // ── Bridge Phaser → React ──────────────────────────────────────────
       game.events.on(GameEvents.NPC_INTERACT, (npcId: string) => {
@@ -97,6 +111,10 @@ export default function GameCanvas({
         cbSpecialAction.current?.(action)
       })
 
+      game.events.on(GameEvents.POSITION_UPDATE, (x: number, y: number) => {
+        cbPositionUpdate.current?.(x, y)
+      })
+
       gameRef.current = game
     }
 
@@ -104,14 +122,15 @@ export default function GameCanvas({
     return () => { gameRef.current?.destroy(true); gameRef.current = null }
   }, [])
 
-  // ── Keep registry in sync with React props ───────────────────────────────
-  useEffect(() => {
-    gameRef.current?.registry.set('npcs', npcs)
-  }, [npcs])
+  // ── Keep registry in sync when props change ───────────────────────────────
+  useEffect(() => { gameRef.current?.registry.set('npcs',      npcs)      }, [npcs])
+  useEffect(() => { gameRef.current?.registry.set('character', character) }, [character])
 
+  // ── Forward other-player presence into Phaser ─────────────────────────────
   useEffect(() => {
-    gameRef.current?.registry.set('character', character)
-  }, [character])
+    if (!gameRef.current) return
+    gameRef.current.events.emit(GameEvents.OTHER_PLAYERS_UPDATE, otherPlayers)
+  }, [otherPlayers])
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 }
