@@ -32,6 +32,7 @@ export default function GamePage() {
   const [activeBuilding, setActiveBuilding] = useState<BuildingEntry | null>(null)
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [inventory, setInventory] = useState<Item[]>(STARTER_ITEMS)
+  const [gameTime, setGameTime] = useState<{ hour: number; minute: number }>({ hour: 8, minute: 0 })
   const messagesRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const chatNpcRef = useRef<NpcSoul | null>(null)
@@ -180,6 +181,7 @@ export default function GamePage() {
           npcs={NPC_LIST}
           onNpcInteract={openChat}
           onEnterBuilding={setActiveBuilding}
+          onClockTick={(h, m) => setGameTime({ hour: h, minute: m })}
         />
       )}
 
@@ -214,6 +216,9 @@ export default function GamePage() {
         <div style={{ pointerEvents: 'auto' }}>
           <span style={{ fontFamily: 'Cinzel, serif', fontWeight: 900, fontSize: 18, color: '#c9a84c', letterSpacing: '0.08em' }}>{game?.name}</span>
           <span style={{ fontSize: 11, color: 'rgba(245,240,232,0.4)', marginLeft: 10, fontWeight: 500 }}>Day {game?.day}</span>
+          <span style={{ fontSize: 11, color: 'rgba(201,168,76,0.6)', marginLeft: 8, fontWeight: 600, fontFamily: 'monospace' }}>
+            {String(gameTime.hour).padStart(2,'0')}:{String(gameTime.minute).padStart(2,'0')}
+          </span>
         </div>
         <div style={{ display: 'flex', gap: 8, pointerEvents: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 99, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.2)', fontSize: 12, color: 'rgba(245,240,232,0.7)', fontWeight: 600 }}>

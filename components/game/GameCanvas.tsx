@@ -3,91 +3,58 @@
 import { useEffect, useRef } from 'react'
 import type { Character } from '@/lib/supabase'
 import type { NpcSoul } from '@/lib/npcs'
+import { generateSpriteSheet, NPC_PALETTES } from '@/lib/char-sprites'
 
 export type BuildingEntry = {
-  id: string
-  name: string
-  npcId?: string // NPC who lives/works here
+  id: string; name: string; npcId?: string
 }
 
 type Props = {
   character: Character
   npcs: NpcSoul[]
   onNpcInteract: (npc: NpcSoul) => void
-  onEnterBuilding: (building: BuildingEntry) => void
+  onEnterBuilding: (b: BuildingEntry) => void
+  onClockTick?: (hour: number, minute: number) => void
 }
 
-// Tile index = row * 12 + col  (packed tilemap, 12 cols, 16×16 tiles, no spacing)
+// ── Tile constants ────────────────────────────────────────────────────────────
 const T = {
-  GRASS: 0, GRASS_F1: 1, GRASS_F2: 2,
-  TREE_S: 5, TREE_TL: 7, TREE_TR: 8, TREE_BL: 19, TREE_BR: 20,
-  TREE_ATL: 9, TREE_ATR: 10, TREE_ABL: 21, TREE_ABR: 22,
-  BUSH_Y: 27, BUSH_G: 28, BUSH_HL: 30, BUSH_HR: 31,
-  DIRT: 25, DIRT_V1: 39, DIRT_V2: 40, COBB: 32,
-  TRN_TL: 12, TRN_T: 13, TRN_TR: 14,
-  TRN_L: 24, TRN_R: 26,
-  TRN_BL: 36, TRN_B: 37, TRN_BR: 38,
-  ROOF_TL: 48, ROOF_T: 49, ROOF_TR: 50,
-  ROOF_ML: 60, ROOF_M: 61, ROOF_MR: 62,
-  ROOFRED_TL: 52, ROOFRED_T: 53, ROOFRED_TR: 54,
-  ROOFRED_ML: 64, ROOFRED_M: 65, ROOFRED_MR: 66,
-  WWALL_L: 72, WWALL_C: 73, WWALL_D: 74, WWALL_W: 75,
-  WWALL_WL: 84, WWALL_WD: 85, WWALL_WR: 86,
-  WWALL_BL: 96, WWALL_BC: 97, WWALL_BR: 99,
-  SWALL_L: 76, SWALL_C: 77, SWALL_D: 78, SWALL_R: 79,
-  SWALL_WL: 88, SWALL_WD: 89, SWALL_WR: 90,
-  SWALL_BL: 100, SWALL_BC: 101, SWALL_BR: 103,
-  FENCE_TL: 33, FENCE_T: 34, FENCE_TR: 35,
-  FENCE_L: 45, FENCE_P: 46, FENCE_R: 47,
-  FENCE_BL: 57, FENCE_B: 58, FENCE_BR: 59,
-  WELL: 92, ANVIL: 105, HAMMER: 106, BARREL: 107,
-  SIGN: 83, HAY: 94, MUSHROOM: 29,
+  GRASS:0,GRASS_F1:1,GRASS_F2:2,
+  TREE_S:5,TREE_TL:7,TREE_TR:8,TREE_BL:19,TREE_BR:20,
+  TREE_ATL:9,TREE_ATR:10,TREE_ABL:21,TREE_ABR:22,
+  BUSH_Y:27,BUSH_G:28,BUSH_HL:30,BUSH_HR:31,
+  DIRT:25,COBB:32,
+  TRN_TL:12,TRN_T:13,TRN_TR:14,TRN_L:24,TRN_R:26,TRN_BL:36,TRN_B:37,TRN_BR:38,
+  ROOF_TL:48,ROOF_T:49,ROOF_TR:50,ROOF_ML:60,ROOF_M:61,ROOF_MR:62,
+  ROOFRED_TL:52,ROOFRED_T:53,ROOFRED_TR:54,ROOFRED_ML:64,ROOFRED_M:65,ROOFRED_MR:66,
+  WWALL_L:72,WWALL_C:73,WWALL_D:74,WWALL_W:75,
+  WWALL_WL:84,WWALL_WD:85,WWALL_WR:86,
+  WWALL_BL:96,WWALL_BC:97,WWALL_BR:99,
+  SWALL_L:76,SWALL_C:77,SWALL_D:78,SWALL_R:79,
+  SWALL_WL:88,SWALL_WD:89,SWALL_WR:90,
+  SWALL_BL:100,SWALL_BC:101,SWALL_BR:103,
+  FENCE_TL:33,FENCE_T:34,FENCE_TR:35,FENCE_L:45,FENCE_P:46,FENCE_R:47,
+  FENCE_BL:57,FENCE_B:58,FENCE_BR:59,
+  WELL:92,ANVIL:105,HAMMER:106,BARREL:107,SIGN:83,HAY:94,MUSHROOM:29,
 }
 
-// Tiles that block movement
 const SOLID_TILES = new Set([
-  // Roofs
-  48,49,50,51,52,53,54,55,
-  60,61,62,63,64,65,66,67,
-  // Walls (all EXCEPT door tiles 74, 78 which are interactable)
-  72,73,75,76,77,79,
-  84,86,87,88,90,91,
+  48,49,50,51,52,53,54,55,60,61,62,63,64,65,66,67,
+  72,73,75,76,77,79,84,86,87,88,90,91,
   96,97,98,99,100,101,102,103,
-  // Trees
-  5,7,8,9,10,19,20,21,22,
-  // Bushes
-  27,28,30,31,
-  // Fence
+  5,7,8,9,10,19,20,21,22,27,28,30,31,
   33,34,35,45,46,47,57,58,59,
-  // Props
   92,105,106,107,
 ])
 
-// Building door tile positions (tile coords) + building info
-const DOORS: ({ tx: number; ty: number } & BuildingEntry)[] = [
-  { tx: 5,  ty: 5,  id: 'bakery',   name: "Eleanor's Bakery",  npcId: 'eleanor' },
-  { tx: 12, ty: 5,  id: 'townhall', name: 'Town Hall',         npcId: 'caleb'   },
-  { tx: 18, ty: 5,  id: 'shop',     name: 'General Store'                       },
-  { tx: 2,  ty: 16, id: 'cottage',  name: "Maeve's Cottage",   npcId: 'maeve'   },
-  { tx: 12, ty: 16, id: 'tavern',   name: 'Tavern'                              },
-  { tx: 18, ty: 16, id: 'library',  name: 'Library',           npcId: 'ruth'    },
+const DOORS: ({ tx:number; ty:number } & BuildingEntry)[] = [
+  {tx:5,  ty:5,  id:'bakery',   name:"Eleanor's Bakery", npcId:'eleanor'},
+  {tx:12, ty:5,  id:'townhall', name:'Town Hall',        npcId:'caleb'  },
+  {tx:18, ty:5,  id:'shop',     name:'General Store'                    },
+  {tx:2,  ty:16, id:'cottage',  name:"Maeve's Cottage",  npcId:'maeve'  },
+  {tx:12, ty:16, id:'tavern',   name:'Tavern'                           },
+  {tx:18, ty:16, id:'library',  name:'Library',          npcId:'ruth'   },
 ]
-
-const NPC_TILE: Record<string, { tx: number; ty: number }> = {
-  eleanor: { tx: 6,  ty: 7  },
-  silas:   { tx: 18, ty: 6  },
-  maeve:   { tx: 3,  ty: 13 },
-  caleb:   { tx: 13, ty: 4  },
-  ruth:    { tx: 20, ty: 13 },
-}
-
-const NPC_COLORS: Record<string, { body: number; hair: number; shirt: number }> = {
-  eleanor: { body: 0xfde8cc, hair: 0x6b3515, shirt: 0xe07878 },
-  silas:   { body: 0xd4a870, hair: 0x2a1a0a, shirt: 0x546a84 },
-  maeve:   { body: 0xf2e0c8, hair: 0x1a0a2e, shirt: 0x7a5090 },
-  caleb:   { body: 0xfcd8a8, hair: 0x7a5020, shirt: 0x4a8060 },
-  ruth:    { body: 0xfde0cc, hair: 0x8b0808, shirt: 0x506088 },
-}
 
 // prettier-ignore
 const MAP_DATA: number[][] = [
@@ -111,9 +78,45 @@ const MAP_DATA: number[][] = [
   [T.TREE_TL,T.SWALL_BL,T.SWALL_BC,T.SWALL_BR,T.GRASS,T.BUSH_HL,T.BUSH_HR,T.GRASS,T.GRASS,T.GRASS,T.WWALL_BL,T.WWALL_BC,T.WWALL_BC,T.WWALL_BR,T.GRASS,T.GRASS,T.GRASS_F2,T.WWALL_BL,T.WWALL_BC,T.WWALL_BR,T.GRASS,T.TREE_ATL,T.TREE_ATR,T.TREE_TR],
 ]
 
-export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuilding }: Props) {
+// NPC schedule: tile coords per time-of-day
+const NPC_SCHEDULE: Record<string, { hour: number; tx: number; ty: number; activity: string }[]> = {
+  eleanor: [
+    { hour:  5, tx: 5,  ty: 5,  activity: 'Opening the bakery' },
+    { hour: 13, tx: 9,  ty: 9,  activity: 'Afternoon walk'     },
+    { hour: 17, tx: 11, ty: 9,  activity: 'Tending the well'   },
+    { hour: 20, tx: 5,  ty: 5,  activity: 'Closing up'         },
+  ],
+  silas: [
+    { hour:  6, tx: 18, ty: 5,  activity: 'At the forge'       },
+    { hour: 12, tx: 18, ty: 9,  activity: 'Lunch break'        },
+    { hour: 19, tx: 12, ty: 16, activity: 'Evening at tavern'  },
+    { hour: 21, tx: 18, ty: 5,  activity: 'Home'               },
+  ],
+  maeve: [
+    { hour:  6, tx: 2,  ty: 16, activity: 'Tending garden'     },
+    { hour: 14, tx: 18, ty: 16, activity: 'Visiting library'   },
+    { hour: 17, tx: 11, ty: 9,  activity: 'Evening walk'       },
+    { hour: 20, tx: 2,  ty: 16, activity: 'Home at dusk'       },
+  ],
+  caleb: [
+    { hour:  8, tx: 13, ty: 4,  activity: 'Morning at Town Hall' },
+    { hour: 11, tx: 9,  ty: 9,  activity: 'Walking the town'     },
+    { hour: 13, tx: 5,  ty: 8,  activity: 'Lunch by bakery'      },
+    { hour: 19, tx: 12, ty: 16, activity: 'Evening at tavern'    },
+  ],
+  ruth: [
+    { hour:  8, tx: 18, ty: 16, activity: 'Library open'       },
+    { hour: 14, tx: 18, ty: 16, activity: 'Afternoon reading'  },
+    { hour: 17, tx: 11, ty: 9,  activity: 'Evening observation'},
+    { hour: 19, tx: 18, ty: 16, activity: 'Closing library'    },
+  ],
+}
+
+export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuilding, onClockTick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const gameRef = useRef<any>(null)
+  const clockCallbackRef = useRef(onClockTick)
+  clockCallbackRef.current = onClockTick
 
   useEffect(() => {
     if (!containerRef.current || gameRef.current) return
@@ -122,264 +125,352 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
       const Phaser = (await import('phaser')).default
       const TILE = 16, ZOOM = 3
       const COLS = 24, ROWS = 18
-      const isMobile = window.innerWidth < 768
+      const FW = 16, FH = 20  // sprite frame dimensions
 
       class TownScene extends Phaser.Scene {
         playerBody!: Phaser.Physics.Arcade.Image
-        player!: Phaser.GameObjects.Container
-        npcMap = new Map<string, Phaser.GameObjects.Container>()
-        cursors!: Phaser.Types.Input.Keyboard.CursorKeys
-        wasd!: Record<string, Phaser.Input.Keyboard.Key>
-        nearbyNpc: string | null = null
-        nearbyDoor: BuildingEntry | null = null
-        hint!: Phaser.GameObjects.Container
-        hintText!: Phaser.GameObjects.Text
-        walkTimer = 0; walkFrame = 0
-        joystick = { on: false, x0: 0, y0: 0, cx: 0, cy: 0 }
-        jBase!: Phaser.GameObjects.Arc; jThumb!: Phaser.GameObjects.Arc
+        playerSpr!:  Phaser.GameObjects.Sprite
+        playerName!: Phaser.GameObjects.Text
+        npcSprites:  Map<string, Phaser.GameObjects.Sprite> = new Map()
+        npcLabels:   Map<string, { name: Phaser.GameObjects.Text; role: Phaser.GameObjects.Text; badge: Phaser.GameObjects.Text }> = new Map()
+        npcTargets:  Map<string, { x: number; y: number }> = new Map()
+        npcFacing:   Map<string, string> = new Map()
+        cursors!:    Phaser.Types.Input.Keyboard.CursorKeys
+        wasd!:       any
+        nearbyNpc:   string | null = null
+        nearbyDoor:  BuildingEntry | null = null
+        hint!:       Phaser.GameObjects.Container
+        hintText!:   Phaser.GameObjects.Text
+        joystick =   { on: false, x0: 0, y0: 0, cx: 0, cy: 0 }
+        jBase!:      Phaser.GameObjects.Arc
+        jThumb!:     Phaser.GameObjects.Arc
+        // Game clock
+        gameHour   = 8
+        gameMinute = 0
+        clockAcc   = 0  // accumulator ms
 
         constructor() { super({ key: 'TownScene' }) }
-
-        makeCharSprite(key: string, bodyCol: number, hairCol: number, shirtCol: number, frame = 0) {
-          const PX = 2
-          const W = 8 * PX, H = 14 * PX
-          const g = this.add.graphics()
-          g.fillStyle(0x000000, 0.2)
-          g.fillEllipse(W / 2, H + PX, W * 0.7, PX * 2)
-          const lo = frame === 1 ? PX : frame === 2 ? -PX : 0
-          g.fillStyle(0x2a1a0e)
-          g.fillRect(PX, H - 2 * PX + lo, 2 * PX, PX)
-          g.fillRect(4 * PX, H - 2 * PX - lo, 2 * PX, PX)
-          g.fillStyle(0x2a3550)
-          g.fillRect(PX, H - 5 * PX + lo, 2 * PX, 3 * PX)
-          g.fillRect(4 * PX, H - 5 * PX - lo, 2 * PX, 3 * PX)
-          g.fillStyle(shirtCol)
-          g.fillRect(PX, H - 9 * PX, 6 * PX, 4 * PX)
-          g.fillRect(0, H - 9 * PX, PX, 3 * PX)
-          g.fillRect(7 * PX, H - 9 * PX, PX, 3 * PX)
-          g.fillStyle(bodyCol)
-          g.fillRect(0, H - 7 * PX, PX, PX)
-          g.fillRect(7 * PX, H - 7 * PX, PX, PX)
-          g.fillRect(3 * PX, H - 10 * PX, 2 * PX, PX)
-          g.fillStyle(bodyCol)
-          g.fillRect(2 * PX, H - 14 * PX, 5 * PX, 5 * PX)
-          g.fillStyle(0x1a1a2e)
-          g.fillRect(3 * PX, H - 12 * PX, PX, PX)
-          g.fillRect(5 * PX, H - 12 * PX, PX, PX)
-          g.fillStyle(hairCol)
-          g.fillRect(2 * PX, H - 14 * PX, 5 * PX, 2 * PX)
-          g.fillRect(PX, H - 13 * PX, PX, 2 * PX)
-          g.generateTexture(key, W + PX, H + PX * 2)
-          g.destroy()
-        }
 
         preload() {
           this.load.image('tiles', '/assets/tilemap.png')
         }
 
         create() {
-          const textRes = Math.ceil(window.devicePixelRatio * 2)
+          const textRes  = Math.ceil(window.devicePixelRatio * 2)
+          const isMobile = window.innerWidth < 768
+
+          // ── Generate sprite sheets via Canvas ──────────────────────
+          const loadSheet = (key: string, dataURL: string) => {
+            const img = new Image()
+            img.onload = () => {
+              if (!this.textures.exists(key)) this.textures.addImage(key, img)
+            }
+            img.src = dataURL
+          }
+
+          // Synchronous texture creation using Phaser's built-in texture system
+          const makeSheet = (key: string, palette: any) => {
+            const dataURL = generateSpriteSheet(palette)
+            const image = new Image()
+            image.src = dataURL
+            // Use Phaser's texture loading from existing image
+            this.textures.addBase64(key, dataURL)
+          }
+
+          Object.entries(NPC_PALETTES).forEach(([key, pal]) => makeSheet(key, pal))
+          makeSheet('player', NPC_PALETTES.player)
+
+          // Wait for textures then set up the scene
+          this.textures.once('onload', () => {})
 
           // ── Tilemap + collision ─────────────────────────────────────
           const map = this.make.tilemap({ data: MAP_DATA, tileWidth: TILE, tileHeight: TILE })
           const tileset = map.addTilesetImage('tiles', 'tiles', TILE, TILE, 0, 0)!
           const layer = map.createLayer(0, tileset, 0, 0)!
           layer.setScale(ZOOM).setDepth(0)
+          layer.forEachTile(tile => { if (SOLID_TILES.has(tile.index)) tile.setCollision(true) })
 
-          // Mark solid tiles for physics collision
-          layer.forEachTile(tile => {
-            if (SOLID_TILES.has(tile.index)) tile.setCollision(true)
-          })
+          // ── Animations ─────────────────────────────────────────────
+          const setupAnims = (key: string) => {
+            // down
+            this.anims.create({ key: `${key}_idle_down`, frames: this.anims.generateFrameNumbers(key, { start: 0, end: 0 }), frameRate: 1, repeat: -1 })
+            this.anims.create({ key: `${key}_walk_down`, frames: this.anims.generateFrameNumbers(key, { frames: [0, 1, 0, 2] }), frameRate: 8, repeat: -1 })
+            // up
+            this.anims.create({ key: `${key}_idle_up`, frames: this.anims.generateFrameNumbers(key, { start: 3, end: 3 }), frameRate: 1, repeat: -1 })
+            this.anims.create({ key: `${key}_walk_up`, frames: this.anims.generateFrameNumbers(key, { frames: [3, 4, 3, 5] }), frameRate: 8, repeat: -1 })
+            // side (flipX for left)
+            this.anims.create({ key: `${key}_idle_side`, frames: this.anims.generateFrameNumbers(key, { start: 6, end: 6 }), frameRate: 1, repeat: -1 })
+            this.anims.create({ key: `${key}_walk_side`, frames: this.anims.generateFrameNumbers(key, { frames: [6, 7, 6, 8] }), frameRate: 8, repeat: -1 })
+          }
 
-          // ── Character sprites ───────────────────────────────────────
-          this.makeCharSprite('p_idle', 0xffe0b0, 0x5a3a10, 0x3a5a8a, 0)
-          this.makeCharSprite('p_w1',   0xffe0b0, 0x5a3a10, 0x3a5a8a, 1)
-          this.makeCharSprite('p_w2',   0xffe0b0, 0x5a3a10, 0x3a5a8a, 2)
-          npcs.forEach(npc => {
-            const c = NPC_COLORS[npc.id] || { body: 0xfde0cc, hair: 0x3d1f00, shirt: 0x808080 }
-            this.makeCharSprite(`npc_${npc.id}_i`, c.body, c.hair, c.shirt, 0)
-          })
+          // Textures load asynchronously — set up anims after textures ready
+          const trySetupAnims = () => {
+            npcs.forEach(npc => {
+              if (this.textures.exists(npc.id)) setupAnims(npc.id)
+            })
+            if (this.textures.exists('player')) setupAnims('player')
+          }
+
+          // Try immediately, and also on next frame
+          this.time.delayedCall(100, trySetupAnims)
+          this.time.delayedCall(500, trySetupAnims)
 
           // ── NPCs ────────────────────────────────────────────────────
           npcs.forEach(npc => {
-            const tp = NPC_TILE[npc.id] || { tx: 5, ty: 9 }
-            const wx = tp.tx * TILE * ZOOM + (TILE * ZOOM) / 2
-            const wy = tp.ty * TILE * ZOOM + (TILE * ZOOM) / 2
-            const spr = this.add.image(0, 0, `npc_${npc.id}_i`).setScale(ZOOM)
-            const nameTag = this.add.text(0, -36, npc.name, {
+            const sched = NPC_SCHEDULE[npc.id]
+            const startEntry = sched ? sched[0] : { tx: 6, ty: 9 }
+            const wx = startEntry.tx * TILE * ZOOM + (TILE * ZOOM) / 2
+            const wy = startEntry.ty * TILE * ZOOM + (TILE * ZOOM) / 2
+
+            // Use a simple image for now (will switch to sprite once texture loads)
+            const spr = this.add.sprite(wx, wy, npc.id, 0).setScale(ZOOM).setDepth(wy)
+            this.npcSprites.set(npc.id, spr)
+            this.npcTargets.set(npc.id, { x: wx, y: wy })
+            this.npcFacing.set(npc.id, 'down')
+
+            // Labels
+            const nameTag = this.add.text(wx, wy - 36, npc.name, {
               fontSize: '11px', fontStyle: 'bold', color: '#f5f0e8',
               stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
-            }).setOrigin(0.5).setResolution(textRes)
-            const roleTag = this.add.text(0, -23, npc.role, {
+            }).setOrigin(0.5).setResolution(textRes).setDepth(wy + 20)
+
+            const roleTag = this.add.text(wx, wy - 24, npc.role, {
               fontSize: '9px', color: '#c9a84c',
               stroke: '#000000', strokeThickness: 2, fontFamily: 'Inter, sans-serif',
-            }).setOrigin(0.5).setResolution(textRes)
-            const c = this.add.container(wx, wy, [spr, nameTag, roleTag])
-            c.setDepth(wy + 10).setSize(TILE * ZOOM, TILE * ZOOM * 2).setInteractive()
-            c.on('pointerdown', () => onNpcInteract(npc))
-            c.on('pointerover', () => spr.setScale(ZOOM * 1.1))
-            c.on('pointerout',  () => spr.setScale(ZOOM))
-            c.setData('id', npc.id)
-            this.tweens.add({
-              targets: [nameTag, roleTag], y: `+=3`,
-              duration: 1400 + Math.random() * 600, yoyo: true, repeat: -1,
-              ease: 'Sine.InOut', delay: Math.random() * 1000,
-            })
-            this.npcMap.set(npc.id, c)
+            }).setOrigin(0.5).setResolution(textRes).setDepth(wy + 20)
+
+            // Activity badge (shows what NPC is doing)
+            const badge = this.add.text(wx, wy - 50, '', {
+              fontSize: '8px', color: '#a0d890',
+              stroke: '#000000', strokeThickness: 2, fontFamily: 'Inter, sans-serif',
+            }).setOrigin(0.5).setResolution(textRes).setDepth(wy + 20).setVisible(false)
+
+            this.npcLabels.set(npc.id, { name: nameTag, role: roleTag, badge })
+
+            // Tap to interact
+            spr.setInteractive()
+            spr.on('pointerdown', () => onNpcInteract(npc))
           })
 
-          // ── Player — start in CENTER of map ─────────────────────────
-          const startX = 11 * TILE * ZOOM + (TILE * ZOOM) / 2
-          const startY = 9  * TILE * ZOOM + (TILE * ZOOM) / 2
-          const pSpr = this.add.image(0, 0, 'p_idle').setScale(ZOOM)
-          const pName = this.add.text(0, -36, character.name, {
-            fontSize: '11px', fontStyle: 'bold', color: '#e8c97a',
-            stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
-          }).setOrigin(0.5).setResolution(textRes)
-          this.player = this.add.container(startX, startY, [pSpr, pName])
-          this.player.setDepth(startY + 10).setData('spr', pSpr)
+          // ── Player ─────────────────────────────────────────────────
+          const sx = 11 * TILE * ZOOM + (TILE * ZOOM) / 2
+          const sy = 9  * TILE * ZOOM + (TILE * ZOOM) / 2
 
-          // Physics body (invisible, drives collision)
-          this.playerBody = this.physics.add.image(startX, startY, '__DEFAULT')
-            .setVisible(false)
-            .setCollideWorldBounds(true)
-            .setSize(TILE * ZOOM * 0.5, TILE * ZOOM * 0.35)
-
+          this.playerBody = this.physics.add.image(sx, sy, '__DEFAULT')
+            .setVisible(false).setCollideWorldBounds(true)
+            .setSize(TILE * ZOOM * 0.45, TILE * ZOOM * 0.3)
           this.physics.add.collider(this.playerBody, layer)
 
-          // ── Camera ──────────────────────────────────────────────────
+          this.playerSpr = this.add.sprite(sx, sy, 'player', 0)
+            .setScale(ZOOM).setDepth(sy)
+
+          this.playerName = this.add.text(sx, sy - 36, character.name, {
+            fontSize: '11px', fontStyle: 'bold', color: '#e8c97a',
+            stroke: '#000000', strokeThickness: 3, fontFamily: 'Inter, sans-serif',
+          }).setOrigin(0.5).setResolution(textRes).setDepth(sy + 20)
+
+          // ── Camera ─────────────────────────────────────────────────
           this.cameras.main.setBounds(0, 0, COLS * TILE * ZOOM, ROWS * TILE * ZOOM)
           this.cameras.main.startFollow(this.playerBody, true, 0.1, 0.1)
 
           // Vignette
           const { width: sw, height: sh } = this.scale
           const v1 = this.add.graphics().setScrollFactor(0).setDepth(9990)
-          v1.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0.5, 0.5, 0, 0)
+          v1.fillGradientStyle(0x000000,0x000000,0x000000,0x000000,0.5,0.5,0,0)
           v1.fillRect(0, 0, sw, sh * 0.1)
           const v2 = this.add.graphics().setScrollFactor(0).setDepth(9990)
-          v2.fillGradientStyle(0x000000, 0x000000, 0x000000, 0x000000, 0, 0, 0.5, 0.5)
+          v2.fillGradientStyle(0x000000,0x000000,0x000000,0x000000,0,0,0.45,0.45)
           v2.fillRect(0, sh * 0.9, sw, sh * 0.1)
 
-          // ── Interaction hint ────────────────────────────────────────
+          // ── Hint ───────────────────────────────────────────────────
           this.hint = this.add.container(0, 0).setVisible(false).setDepth(9985)
           const hBg = this.add.graphics()
-          hBg.fillStyle(0x111009, 0.88)
-          hBg.fillRoundedRect(-44, -14, 88, 28, 6)
-          hBg.lineStyle(1.5, 0xc9a84c, 0.8)
-          hBg.strokeRoundedRect(-44, -14, 88, 28, 6)
-          this.hintText = this.add.text(0, 0, '', {
-            fontSize: '10px', fontStyle: 'bold', color: '#c9a84c', fontFamily: 'Inter, sans-serif',
+          hBg.fillStyle(0x111009,0.88); hBg.fillRoundedRect(-46,-14,92,28,6)
+          hBg.lineStyle(1.5,0xc9a84c,0.8); hBg.strokeRoundedRect(-46,-14,92,28,6)
+          this.hintText = this.add.text(0,0,'',{
+            fontSize:'10px',fontStyle:'bold',color:'#c9a84c',fontFamily:'Inter, sans-serif'
           }).setOrigin(0.5).setResolution(textRes)
           this.hint.add([hBg, this.hintText])
 
-          // ── Input ───────────────────────────────────────────────────
+          // ── Input ──────────────────────────────────────────────────
           this.input.keyboard!.disableGlobalCapture()
           this.cursors = this.input.keyboard!.createCursorKeys()
-          this.wasd = this.input.keyboard!.addKeys({ up: 'W', down: 'S', left: 'A', right: 'D' }) as any
+          this.wasd = this.input.keyboard!.addKeys({up:'W',down:'S',left:'A',right:'D'})
 
           this.input.keyboard!.on('keydown-E', () => {
             if (!this.input.keyboard!.enabled) return
-            if (this.nearbyNpc) {
-              const npc = npcs.find(n => n.id === this.nearbyNpc)
-              if (npc) { onNpcInteract(npc); return }
-            }
-            if (this.nearbyDoor) {
-              onEnterBuilding(this.nearbyDoor)
-            }
+            if (this.nearbyNpc) { const n=npcs.find(x=>x.id===this.nearbyNpc); if(n) { onNpcInteract(n); return } }
+            if (this.nearbyDoor) onEnterBuilding(this.nearbyDoor)
           })
 
-          const onFocusIn  = (e: FocusEvent) => { const t = (e.target as HTMLElement)?.tagName; if (t === 'INPUT' || t === 'TEXTAREA') this.input.keyboard!.enabled = false }
-          const onFocusOut = (e: FocusEvent) => { const t = (e.target as HTMLElement)?.tagName; if (t === 'INPUT' || t === 'TEXTAREA') this.input.keyboard!.enabled = true  }
-          document.addEventListener('focusin',  onFocusIn)
-          document.addEventListener('focusout', onFocusOut)
-          this.events.once('destroy', () => {
-            document.removeEventListener('focusin',  onFocusIn)
-            document.removeEventListener('focusout', onFocusOut)
-          })
+          const onFI = (e:FocusEvent) => { const t=(e.target as HTMLElement)?.tagName; if(t==='INPUT'||t==='TEXTAREA') this.input.keyboard!.enabled=false }
+          const onFO = (e:FocusEvent) => { const t=(e.target as HTMLElement)?.tagName; if(t==='INPUT'||t==='TEXTAREA') this.input.keyboard!.enabled=true  }
+          document.addEventListener('focusin',onFI); document.addEventListener('focusout',onFO)
+          this.events.once('destroy',()=>{ document.removeEventListener('focusin',onFI); document.removeEventListener('focusout',onFO) })
 
-          // ── Mobile joystick ─────────────────────────────────────────
+          // ── Mobile joystick ────────────────────────────────────────
           if (isMobile) {
             const CH = this.scale.height
-            this.jBase  = this.add.circle(70, CH - 90, 45, 0x000000, 0.5).setStrokeStyle(2, 0xc9a84c, 0.4).setScrollFactor(0).setDepth(9995)
-            this.jThumb = this.add.circle(70, CH - 90, 20, 0xc9a84c, 0.6).setScrollFactor(0).setDepth(9996)
-            this.input.on('pointerdown', (p: Phaser.Input.Pointer) => { if (p.x < 160) this.joystick = { on: true, x0: p.x, y0: p.y, cx: p.x, cy: p.y } })
-            this.input.on('pointermove', (p: Phaser.Input.Pointer) => { if (this.joystick.on) { this.joystick.cx = p.x; this.joystick.cy = p.y } })
-            this.input.on('pointerup',   () => { this.joystick.on = false; this.jThumb?.setPosition(70, this.scale.height - 90) })
+            this.jBase  = this.add.circle(70,CH-90,45,0x000000,0.5).setStrokeStyle(2,0xc9a84c,0.4).setScrollFactor(0).setDepth(9995)
+            this.jThumb = this.add.circle(70,CH-90,20,0xc9a84c,0.6).setScrollFactor(0).setDepth(9996)
+            this.input.on('pointerdown',(p:any)=>{ if(p.x<160) this.joystick={on:true,x0:p.x,y0:p.y,cx:p.x,cy:p.y} })
+            this.input.on('pointermove',(p:any)=>{ if(this.joystick.on){this.joystick.cx=p.x;this.joystick.cy=p.y} })
+            this.input.on('pointerup',()=>{ this.joystick.on=false; this.jThumb?.setPosition(70,this.scale.height-90) })
           }
         }
 
-        update(_: number, delta: number) {
-          const SPD = 200
-          let vx = 0, vy = 0
+        // ── Helper: get facing direction from velocity ──────────────
+        getFacing(vx: number, vy: number): string {
+          if (Math.abs(vx) > Math.abs(vy)) return vx > 0 ? 'right' : 'left'
+          return vy > 0 ? 'down' : 'up'
+        }
 
-          if ((this.wasd as any).left.isDown  || this.cursors.left.isDown)  vx = -SPD
-          else if ((this.wasd as any).right.isDown || this.cursors.right.isDown) vx = SPD
-          if ((this.wasd as any).up.isDown    || this.cursors.up.isDown)    vy = -SPD
-          else if ((this.wasd as any).down.isDown  || this.cursors.down.isDown)  vy = SPD
+        // ── Helper: play correct anim for sprite ────────────────────
+        playAnim(spr: Phaser.GameObjects.Sprite, key: string, facing: string, moving: boolean) {
+          const animKey = `${key}_${moving ? 'walk' : 'idle'}_${facing === 'left' || facing === 'right' ? 'side' : facing}`
+          if (this.anims.exists(animKey) && spr.anims.currentAnim?.key !== animKey) {
+            spr.play(animKey)
+          }
+          // Flip for left
+          spr.setFlipX(facing === 'left')
+        }
+
+        // ── Helper: schedule target for this hour ───────────────────
+        getScheduleTarget(npcId: string): { x: number; y: number } | null {
+          const sched = NPC_SCHEDULE[npcId]
+          if (!sched) return null
+          let entry = sched[0]
+          for (const e of sched) {
+            if (this.gameHour >= e.hour) entry = e
+          }
+          return {
+            x: entry.tx * TILE * ZOOM + (TILE * ZOOM) / 2,
+            y: entry.ty * TILE * ZOOM + (TILE * ZOOM) / 2,
+          }
+        }
+
+        getScheduleActivity(npcId: string): string {
+          const sched = NPC_SCHEDULE[npcId]
+          if (!sched) return ''
+          let entry = sched[0]
+          for (const e of sched) { if (this.gameHour >= e.hour) entry = e }
+          return entry.activity
+        }
+
+        update(_: number, delta: number) {
+          const TILE = 16, ZOOM = 3, SPD = 200
+
+          // ── Game clock (1 real second = 2 game minutes) ─────────────
+          this.clockAcc += delta
+          if (this.clockAcc >= 1000) {
+            this.clockAcc -= 1000
+            this.gameMinute += 2
+            if (this.gameMinute >= 60) { this.gameMinute -= 60; this.gameHour = (this.gameHour + 1) % 24 }
+            clockCallbackRef.current?.(this.gameHour, this.gameMinute)
+          }
+
+          // ── Player input ────────────────────────────────────────────
+          let vx = 0, vy = 0
+          if      (this.wasd.left.isDown  || this.cursors.left.isDown)  vx = -SPD
+          else if (this.wasd.right.isDown || this.cursors.right.isDown) vx =  SPD
+          if      (this.wasd.up.isDown    || this.cursors.up.isDown)    vy = -SPD
+          else if (this.wasd.down.isDown  || this.cursors.down.isDown)  vy =  SPD
 
           if (this.joystick?.on) {
             const dx = this.joystick.cx - this.joystick.x0
             const dy = this.joystick.cy - this.joystick.y0
-            const dist = Math.sqrt(dx * dx + dy * dy)
-            if (dist > 6) {
-              const cl = Math.min(dist, 36)
-              vx = (dx / dist) * SPD * (cl / 36)
-              vy = (dy / dist) * SPD * (cl / 36)
-              this.jThumb?.setPosition(70 + (dx / dist) * cl, this.scale.height - 90 + (dy / dist) * cl)
-            }
+            const d = Math.sqrt(dx*dx+dy*dy)
+            if (d > 6) { const cl=Math.min(d,36); vx=(dx/d)*SPD*(cl/36); vy=(dy/d)*SPD*(cl/36); this.jThumb?.setPosition(70+(dx/d)*cl, this.scale.height-90+(dy/d)*cl) }
           }
-
-          if (vx !== 0 && vy !== 0) { vx *= 0.707; vy *= 0.707 }
+          if (vx!==0&&vy!==0){vx*=0.707;vy*=0.707}
           this.playerBody.setVelocity(vx, vy)
 
-          // Sync visual container to physics body
-          this.player.setPosition(this.playerBody.x, this.playerBody.y)
-          this.player.setDepth(this.playerBody.y + 10)
+          // Sync player sprite + name to physics body
+          const px = this.playerBody.x, py = this.playerBody.y
+          this.playerSpr.setPosition(px, py).setDepth(py)
+          this.playerName.setPosition(px, py - 36).setDepth(py + 20)
 
-          // Walk animation
-          const moving = vx !== 0 || vy !== 0
-          const spr = this.player.getData('spr') as Phaser.GameObjects.Image
-          if (moving) {
-            this.walkTimer += delta
-            if (this.walkTimer > 220) { this.walkTimer = 0; this.walkFrame = this.walkFrame === 1 ? 2 : 1 }
-            spr.setTexture(this.walkFrame === 1 ? 'p_w1' : 'p_w2')
-          } else {
-            spr.setTexture('p_idle'); this.walkTimer = 0
-          }
+          // Player animation
+          const pMoving  = vx !== 0 || vy !== 0
+          const pFacing  = pMoving ? this.getFacing(vx, vy) : (this.playerSpr.getData('facing') || 'down')
+          if (pMoving) this.playerSpr.setData('facing', pFacing)
+          this.playAnim(this.playerSpr, 'player', pFacing, pMoving)
 
-          // NPC proximity
-          const TILE = 16, ZOOM = 3
-          let closestNpc: string | null = null, minNpcD = 80
-          this.npcMap.forEach((c, id) => {
-            const d = Phaser.Math.Distance.Between(this.playerBody.x, this.playerBody.y, c.x, c.y)
-            if (d < minNpcD) { minNpcD = d; closestNpc = id }
+          // ── NPC schedule movement ───────────────────────────────────
+          const NPC_SPEED = 55  // slower than player, deliberate pace
+
+          npcs.forEach(npc => {
+            const spr = this.npcSprites.get(npc.id)
+            const labels = this.npcLabels.get(npc.id)
+            if (!spr) return
+
+            const target = this.getScheduleTarget(npc.id)
+            if (!target) return
+
+            const dx = target.x - spr.x
+            const dy = target.y - spr.y
+            const dist = Math.sqrt(dx*dx + dy*dy)
+
+            if (dist > 6) {
+              // Move toward target
+              const dt = delta / 1000
+              spr.x += (dx/dist) * NPC_SPEED * dt
+              spr.y += (dy/dist) * NPC_SPEED * dt
+              spr.setDepth(spr.y)
+
+              const facing = this.getFacing(dx, dy)
+              this.npcFacing.set(npc.id, facing)
+              this.playAnim(spr, npc.id, facing, true)
+
+              // Show activity badge only when moving
+              if (labels) {
+                const act = this.getScheduleActivity(npc.id)
+                labels.badge.setText(act).setVisible(true)
+              }
+            } else {
+              // Arrived — idle
+              spr.setDepth(spr.y)
+              const facing = this.npcFacing.get(npc.id) || 'down'
+              this.playAnim(spr, npc.id, facing, false)
+              if (labels) labels.badge.setVisible(false)
+            }
+
+            // Update label positions
+            if (labels) {
+              labels.name.setPosition(spr.x, spr.y - 36).setDepth(spr.y + 20)
+              labels.role.setPosition(spr.x, spr.y - 24).setDepth(spr.y + 20)
+              labels.badge.setPosition(spr.x, spr.y - 50).setDepth(spr.y + 25)
+            }
+          })
+
+          // ── Proximity detection ─────────────────────────────────────
+          let closestNpc: string | null = null, minND = 80
+          npcs.forEach(npc => {
+            const spr = this.npcSprites.get(npc.id)
+            if (!spr) return
+            const d = Phaser.Math.Distance.Between(px, py, spr.x, spr.y)
+            if (d < minND) { minND = d; closestNpc = npc.id }
           })
           this.nearbyNpc = closestNpc
 
-          // Door proximity
-          let closestDoor: BuildingEntry | null = null
-          let minDoorD = 70
+          let closestDoor: BuildingEntry | null = null, minDD = 70
           DOORS.forEach(door => {
-            const wx = door.tx * TILE * ZOOM + (TILE * ZOOM) / 2
-            const wy = door.ty * TILE * ZOOM + (TILE * ZOOM) / 2
-            const d = Phaser.Math.Distance.Between(this.playerBody.x, this.playerBody.y, wx, wy)
-            if (d < minDoorD) { minDoorD = d; closestDoor = door }
+            const wx = door.tx*TILE*ZOOM+(TILE*ZOOM)/2
+            const wy = door.ty*TILE*ZOOM+(TILE*ZOOM)/2
+            const d = Phaser.Math.Distance.Between(px, py, wx, wy)
+            if (d < minDD) { minDD = d; closestDoor = door }
           })
           this.nearbyDoor = closestDoor
 
           // Hint
           if (closestNpc) {
-            const c = this.npcMap.get(closestNpc)!
-            const mobile = window.innerWidth < 768
-            this.hintText.setText(mobile ? 'Tap to talk' : '[E] Talk')
-            this.hint.setPosition(c.x, c.y - 60).setVisible(true)
+            const spr = this.npcSprites.get(closestNpc)!
+            this.hintText.setText(window.innerWidth < 768 ? 'Tap to talk' : '[E] Talk')
+            this.hint.setPosition(spr.x, spr.y - 58).setVisible(true)
           } else if (closestDoor) {
-            const door = closestDoor as BuildingEntry & { tx: number; ty: number }
-            const wx = (door as any).tx * TILE * ZOOM + (TILE * ZOOM) / 2
-            const wy = (door as any).ty * TILE * ZOOM + (TILE * ZOOM) / 2 - 30
-            const mobile = window.innerWidth < 768
-            this.hintText.setText(mobile ? `Tap — Enter` : `[E] Enter`)
-            this.hint.setPosition(wx, wy).setVisible(true)
+            const d = closestDoor as any
+            this.hintText.setText(window.innerWidth < 768 ? 'Tap — Enter' : '[E] Enter')
+            this.hint.setPosition(d.tx*TILE*ZOOM+(TILE*ZOOM)/2, d.ty*TILE*ZOOM+(TILE*ZOOM)/2-32).setVisible(true)
           } else {
             this.hint.setVisible(false)
           }
@@ -394,7 +485,7 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
         scene: [TownScene],
         scale: { mode: Phaser.Scale.FIT, autoCenter: Phaser.Scale.CENTER_BOTH },
         render: { antialias: false, pixelArt: true, roundPixels: true },
-        physics: { default: 'arcade', arcade: { gravity: { x: 0, y: 0 }, debug: false } },
+        physics: { default: 'arcade', arcade: { gravity: { x:0, y:0 }, debug: false } },
       })
       gameRef.current = game
     }
