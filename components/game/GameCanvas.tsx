@@ -10,6 +10,8 @@ export type BuildingEntry = {
   id: string; name: string; npcId?: string
 }
 
+export type SpecialAction = 'noticeboard' | 'rest'
+
 type Props = {
   character: Character
   npcs: NpcSoul[]
@@ -17,6 +19,8 @@ type Props = {
   onEnterBuilding: (b: BuildingEntry) => void
   onClockTick?: (hour: number, minute: number) => void
   onNearDoor?: (door: BuildingEntry | null) => void
+  onSpecialAction?: (action: SpecialAction) => void
+  isWalking?: (walking: boolean) => void
 }
 
 // ── Tile constants ────────────────────────────────────────────────────────────
@@ -49,7 +53,7 @@ const SOLID_TILES = new Set([
   // Trees + bushes
   5,7,8,19,20,27,28,
   // Props
-  92,105,106,107,
+  83,92,105,106,107,
 ])
 
 const DOORS: ({ tx:number; ty:number } & BuildingEntry)[] = [
@@ -81,8 +85,8 @@ const MAP_DATA: number[][] = [
   [T.TRN_TL,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_T,T.TRN_TR],
   // Row 8 — road
   [T.TRN_L,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.COBB,T.COBB,T.COBB,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_R],
-  // Row 9 — road with well
-  [T.TRN_L,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.COBB,T.WELL,T.COBB,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_R],
+  // Row 9 — road with well + sign (SIGN=83)
+  [T.TRN_L,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.COBB,T.WELL,T.COBB,T.SIGN,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_R],
   // Row 10 — road
   [T.TRN_L,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.COBB,T.COBB,T.COBB,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.DIRT,T.TRN_R],
   // Row 11 — road south border
@@ -103,7 +107,7 @@ const MAP_DATA: number[][] = [
 
 // (schedules imported from lib/npc-schedule.ts)
 
-export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuilding, onClockTick, onNearDoor }: Props) {
+export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuilding, onClockTick, onNearDoor, onSpecialAction }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const gameRef = useRef<any>(null)
   const clockCallbackRef   = useRef(onClockTick)
@@ -133,6 +137,8 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
         nearbyNpc:       string | null = null
         nearbyDoor:      BuildingEntry | null = null
         prevNearbyDoor:  (BuildingEntry | null) = null
+        nearbySpecial:   string | null = null
+        npcTweens:       Map<string, Phaser.Tweens.Tween> = new Map()
         hint!:           Phaser.GameObjects.Container
         hintText!:   Phaser.GameObjects.Text
         joystick =   { on: false, x0: 0, y0: 0, cx: 0, cy: 0 }
@@ -279,9 +285,9 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
           this.input.keyboard!.on('keydown-E', (e: KeyboardEvent) => {
             e.stopPropagation()
             if (!this.input.keyboard!.enabled) return
-            // Door always takes priority — enter building first
-            if (this.nearbyDoor) { onEnterBuilding(this.nearbyDoor); return }
-            if (this.nearbyNpc) { const n=npcs.find(x=>x.id===this.nearbyNpc); if(n) onNpcInteract(n) }
+            if (this.nearbySpecial) { onSpecialAction?.(this.nearbySpecial as any); return }
+            if (this.nearbyDoor)   { onEnterBuilding(this.nearbyDoor); return }
+            if (this.nearbyNpc)    { const n=npcs.find(x=>x.id===this.nearbyNpc); if(n) onNpcInteract(n) }
           })
 
           // Disable movement keys while typing in a React input
@@ -410,6 +416,12 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
             const dist = Math.sqrt(dx*dx + dy*dy)
 
             if (dist > 6) {
+              // Cancel idle bob when starting to walk
+              if (this.npcTweens.has(npc.id)) {
+                this.npcTweens.get(npc.id)!.stop()
+                this.npcTweens.delete(npc.id)
+              }
+
               const dt = delta / 1000
               spr.x += (dx/dist) * NPC_SPEED * dt
               spr.y += (dy/dist) * NPC_SPEED * dt
@@ -426,6 +438,14 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
               spr.setDepth(spr.y)
               this.playAnim(spr, npc.id, this.npcFacing.get(npc.id) || 'down', false)
               if (labels) labels.badge.setVisible(false)
+              // Idle bob tween — start once when NPC arrives
+              if (!this.npcTweens.has(npc.id)) {
+                const tween = this.tweens.add({
+                  targets: spr, y: spr.y - 2,
+                  duration: 900 + Math.random() * 200, yoyo: true, repeat: -1, ease: 'Sine.easeInOut',
+                })
+                this.npcTweens.set(npc.id, tween)
+              }
             }
 
             if (labels) {
@@ -456,6 +476,22 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
           })
           this.nearbyNpc = closestNpc
 
+          // ── Special points (notice board, rest spot) ────────────────
+          const SPECIALS = [
+            { id: 'noticeboard', tx: 13, ty: 9, label: '📋 Notice Board' },
+            { id: 'rest',        tx: 12, ty: 16, label: '💤 Rest at Tavern' },
+          ]
+          let closestSpecial: string | null = null
+          let closestSpecialLabel = ''
+          let minSD = 80
+          SPECIALS.forEach(sp => {
+            const wx = sp.tx*TILE*ZOOM+(TILE*ZOOM)/2
+            const wy = sp.ty*TILE*ZOOM+(TILE*ZOOM)/2
+            const d = Phaser.Math.Distance.Between(px, py, wx, wy)
+            if (d < minSD) { minSD = d; closestSpecial = sp.id; closestSpecialLabel = sp.label }
+          })
+          this.nearbySpecial = closestSpecial
+
           // Notify React when nearby door changes (for mobile Enter button)
           const prevId = (this.prevNearbyDoor as any)?.id ?? null
           const currId = this.nearbyDoor?.id ?? null
@@ -464,9 +500,13 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
             nearDoorCallbackRef.current?.(this.nearbyDoor)
           }
 
-          // Hint — door takes priority
+          // Hint — special > door > npc
           const isMob = window.innerWidth < 768
-          if (closestDoor) {
+          if (closestSpecial) {
+            const sp = SPECIALS.find(s => s.id === closestSpecial)!
+            this.hintText.setText(isMob ? sp.label : `[E] ${sp.label}`)
+            this.hint.setPosition(sp.tx*TILE*ZOOM+(TILE*ZOOM)/2, sp.ty*TILE*ZOOM+(TILE*ZOOM)/2-44).setVisible(true)
+          } else if (closestDoor) {
             const d = closestDoor as any
             this.hintText.setText(isMob ? '🚪 Tap to Enter' : '[E] Enter')
             this.hint.setPosition(d.tx*TILE*ZOOM+(TILE*ZOOM)/2, d.ty*TILE*ZOOM+(TILE*ZOOM)/2-40).setVisible(true)

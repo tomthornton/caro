@@ -16,7 +16,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ npc
   const npc = NPCS[npcId]
   if (!npc) return NextResponse.json({ error: 'NPC not found' }, { status: 404 })
 
-  const { messages, characterName, gameId, userId, gameDay, gameHour, isClosing } = await req.json()
+  const { messages, characterName, gameId, userId, gameDay, gameHour, isClosing, questContext } = await req.json()
 
   // ── Load dynamic state ────────────────────────────────────────────────────
   let state: NpcDynamicState = { ...DEFAULT_STATE }
@@ -84,7 +84,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ npc
   // ── Build prompt and call Claude ──────────────────────────────────────────
   const currentHour = typeof gameHour === 'number' ? gameHour : 8
   const townContext = buildTownContext(npcId, currentHour, NPC_LIST)
-  const systemPrompt = buildSystemPrompt(npc, state, characterName || 'Stranger', gameDay, townContext)
+  const fullContext  = [townContext, questContext].filter(Boolean).join('\n')
+  const systemPrompt = buildSystemPrompt(npc, state, characterName || 'Stranger', gameDay, fullContext || undefined)
 
   try {
     const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })

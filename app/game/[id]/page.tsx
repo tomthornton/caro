@@ -12,10 +12,16 @@ import type { Item } from '@/components/game/InventoryPanel'
 import { STARTER_ITEMS } from '@/components/game/InventoryPanel'
 import DayNightOverlay from '@/components/game/DayNightOverlay'
 import { AmbientAudio, getTimeEnvironment } from '@/lib/ambient-audio'
+import { loadQuestState, saveQuestState, startQuest, completeObjective, getActiveQuest, buildQuestContext, type QuestState } from '@/lib/quests'
+import { getDayEvent, type GameEvent } from '@/lib/random-events'
+import type { SpecialAction } from '@/components/game/GameCanvas'
 
-const GameCanvas       = dynamicImport(() => import('@/components/game/GameCanvas'),       { ssr: false })
-const BuildingInterior = dynamicImport(() => import('@/components/game/BuildingInterior'), { ssr: false })
-const InventoryPanel   = dynamicImport(() => import('@/components/game/InventoryPanel'),   { ssr: false })
+const GameCanvas          = dynamicImport(() => import('@/components/game/GameCanvas'),          { ssr: false })
+const BuildingInterior    = dynamicImport(() => import('@/components/game/BuildingInterior'),    { ssr: false })
+const InventoryPanel      = dynamicImport(() => import('@/components/game/InventoryPanel'),      { ssr: false })
+const RelationshipPanel   = dynamicImport(() => import('@/components/game/RelationshipPanel'),   { ssr: false })
+const NoticeBoardPanel    = dynamicImport(() => import('@/components/game/NoticeBoardPanel'),    { ssr: false })
+const QuestLog            = dynamicImport(() => import('@/components/game/QuestLog'),            { ssr: false })
 
 type Msg = { role: 'user' | 'assistant'; content: string }
 
@@ -36,7 +42,14 @@ export default function GamePage() {
   const [inventoryOpen, setInventoryOpen] = useState(false)
   const [inventory, setInventory] = useState<Item[]>(STARTER_ITEMS)
   const [gameTime, setGameTime] = useState<{ hour: number; minute: number }>({ hour: 8, minute: 0 })
-  const [nearDoor, setNearDoor] = useState<BuildingEntry | null>(null)
+  const [nearDoor, setNearDoor]         = useState<BuildingEntry | null>(null)
+  const [relPanelOpen, setRelPanel]     = useState(false)
+  const [questLogOpen, setQuestLog]     = useState(false)
+  const [noticeBoardOpen, setNoticeBoard] = useState(false)
+  const [showSleepTransition, setShowSleep] = useState(false)
+  const [questState, setQuestState]     = useState<QuestState | null>(null)
+  const [dayEvent, setDayEvent]         = useState<GameEvent | null>(null)
+  const [trustMap, setTrustMap]         = useState<Record<string, number>>({})
   const audioRef = useRef<AmbientAudio | null>(null)
   const messagesRef = useRef<HTMLDivElement>(null)
   const inputRef    = useRef<HTMLInputElement>(null)
@@ -55,6 +68,24 @@ export default function GamePage() {
       if (!c) { router.push(`/game/${gameId}/character`); return }
       if (!g) { router.push('/dashboard'); return }
       setGame(g); setCharacter(c)
+
+      // Load quest state + day event
+      if (g) {
+        setQuestState(loadQuestState(g.id))
+        setDayEvent(getDayEvent(g.id, g.day ?? 1))
+      }
+
+      // Load trust map for quest unlock checks
+      if (session.user.id && g) {
+        const { data: npcStates } = await supabase
+          .from('npc_state').select('npc_id, trust')
+          .eq('game_id', g.id).eq('user_id', session.user.id)
+        if (npcStates) {
+          const tm: Record<string, number> = {}
+          npcStates.forEach((s: any) => { tm[s.npc_id] = s.trust ?? 0 })
+          setTrustMap(tm)
+        }
+      }
       // Load inventory from character record
       if (c.inventory && Array.isArray(c.inventory) && (c.inventory as any[]).length > 0) {
         setInventory(c.inventory as Item[])
@@ -92,6 +123,7 @@ export default function GamePage() {
         body: JSON.stringify({
           messages: [], characterName: character?.name,
           gameId, userId, gameDay: game?.day, gameHour: gameTime.hour,
+          questContext: questState ? buildQuestContext(npc.id, questState) : '',
         }),
       })
       const json = await res.json()
@@ -153,6 +185,32 @@ export default function GamePage() {
     setSending(false)
   }
 
+  const handleSpecialAction = (action: SpecialAction) => {
+    if (action === 'noticeboard') setNoticeBoard(true)
+    if (action === 'rest') handleSleep()
+  }
+
+  const handleSleep = async () => {
+    if (!game) return
+    setShowSleep(true)
+    // Advance day in Supabase
+    const newDay = (game.day ?? 1) + 1
+    await supabase.from('games').update({ day: newDay }).eq('id', gameId)
+    setGame(g => g ? { ...g, day: newDay } : g)
+    // New day event
+    const newEvent = getDayEvent(gameId, newDay)
+    setDayEvent(newEvent)
+    // Reset quest state for new day if needed
+    if (questState) {
+      const updated = { ...questState }
+      saveQuestState(gameId, updated)
+    }
+    setTimeout(() => {
+      setShowSleep(false)
+      // Reset game time to 6am — done by reloading game clock in Phaser
+    }, 2500)
+  }
+
   const STAT_LABELS: Record<string, string> = {
     strength: '💪', intellect: '🧠', charisma: '✨',
     cooking: '🍳', crafting: '⚒️', wisdom: '🕯️', reputation: '⭐',
@@ -206,6 +264,7 @@ export default function GamePage() {
             }
           }}
           onNearDoor={setNearDoor}
+          onSpecialAction={handleSpecialAction}
           onEnterBuilding={(b) => {
             setActiveBuilding(b)
             audioRef.current?.setEnvironment('indoor')
@@ -228,6 +287,55 @@ export default function GamePage() {
           />
         )
       })()}
+
+      {/* Relationship panel */}
+      {relPanelOpen && userId && (
+        <RelationshipPanel gameId={gameId} userId={userId} onClose={() => setRelPanel(false)} />
+      )}
+
+      {/* Quest log */}
+      {questLogOpen && questState && (
+        <QuestLog
+          state={questState}
+          trustMap={trustMap}
+          onClose={() => setQuestLog(false)}
+          onStart={(id) => {
+            const next = startQuest(questState, id)
+            setQuestState(next)
+            saveQuestState(gameId, next)
+            setQuestLog(false)
+          }}
+        />
+      )}
+
+      {/* Notice board */}
+      {noticeBoardOpen && dayEvent && (
+        <NoticeBoardPanel
+          gameId={gameId}
+          gameDay={game?.day ?? 1}
+          gameHour={gameTime.hour}
+          event={dayEvent}
+          onClose={() => setNoticeBoard(false)}
+        />
+      )}
+
+      {/* Sleep transition */}
+      {showSleepTransition && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0)', animation: 'fadeBlack 2.5s ease forwards',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none',
+        }}>
+          <div style={{ color: 'rgba(245,240,232,0.8)', fontFamily: 'Cinzel, serif', fontSize: 18, letterSpacing: '0.12em', opacity: 0, animation: 'fadeText 2.5s ease forwards 0.5s' }}>
+            You rest until morning…
+          </div>
+          <style>{`
+            @keyframes fadeBlack { 0%{background:rgba(0,0,0,0)} 40%{background:rgba(0,0,0,0.95)} 100%{background:rgba(0,0,0,0.95)} }
+            @keyframes fadeText  { 0%{opacity:0} 30%{opacity:1} 80%{opacity:1} 100%{opacity:0} }
+          `}</style>
+        </div>
+      )}
 
       {/* Inventory panel */}
       {inventoryOpen && (
@@ -260,7 +368,19 @@ export default function GamePage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 10px', borderRadius: 99, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.2)', fontSize: 12, color: 'rgba(245,240,232,0.7)', fontWeight: 600 }}>
             🪙 {character?.gold}
           </div>
-          <button onClick={() => setInventoryOpen(true)}
+          {/* Quest indicator */}
+          {questState && getActiveQuest(questState) && (
+            <button onPointerDown={() => setQuestLog(true)}
+              style={{ padding: '0 10px', height: 34, borderRadius: 10, background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)', cursor: 'pointer', fontSize: 11, fontWeight: 700, color: '#c9a84c', whiteSpace: 'nowrap' }}>
+              📋 Quest
+            </button>
+          )}
+          <button onPointerDown={() => setRelPanel(true)}
+            style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.25)', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            title="Relationships">
+            ❤️
+          </button>
+          <button onPointerDown={() => setInventoryOpen(true)}
             style={{ width: 34, height: 34, borderRadius: 10, background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(201,168,76,0.25)', cursor: 'pointer', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             title="Inventory [I]">
             🎒
@@ -330,6 +450,21 @@ export default function GamePage() {
                 ))}
               </div>
             </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
+              <button onPointerDown={() => { setQuestLog(true); setMenuOpen(false) }}
+                style={{ width: '100%', padding: '11px 0', borderRadius: 10, border: '1px solid rgba(201,168,76,0.2)', cursor: 'pointer', background: 'rgba(201,168,76,0.06)', color: '#c9a84c', fontWeight: 600, fontSize: 13 }}>
+                📋 Quest Log
+              </button>
+              <button onPointerDown={() => { setRelPanel(true); setMenuOpen(false) }}
+                style={{ width: '100%', padding: '11px 0', borderRadius: 10, border: '1px solid rgba(201,168,76,0.2)', cursor: 'pointer', background: 'rgba(201,168,76,0.06)', color: '#c9a84c', fontWeight: 600, fontSize: 13 }}>
+                ❤️ Relationships
+              </button>
+              <button onPointerDown={() => handleSleep()}
+                style={{ width: '100%', padding: '11px 0', borderRadius: 10, border: '1px solid rgba(201,168,76,0.2)', cursor: 'pointer', background: 'rgba(201,168,76,0.06)', color: '#c9a84c', fontWeight: 600, fontSize: 13 }}>
+                💤 Rest Until Morning
+              </button>
+            </div>
+
             <div style={{ marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <button onClick={() => setMenuOpen(false)}
                 style={{ width: '100%', padding: '13px 0', borderRadius: 12, border: 'none', cursor: 'pointer', background: 'rgba(201,168,76,0.1)', color: '#c9a84c', fontWeight: 600, fontSize: 14 }}>
