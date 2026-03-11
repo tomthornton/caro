@@ -119,7 +119,9 @@ function drawSide(ctx: CanvasRenderingContext2D, ox: number, oy: number, c: Char
   r(ctx, ox+7, oy+18+legB, 4, 2, c.shoe)   // back shoe
 }
 
-export function generateSpriteSheet(colors: CharColors): string {
+// Returns the raw HTMLCanvasElement so callers can use it synchronously
+// (e.g. Phaser's textures.addSpriteSheet which accepts a canvas directly)
+export function generateSpriteCanvas(colors: CharColors): HTMLCanvasElement {
   const FW = 16, FH = 20
   const canvas = document.createElement('canvas')
   canvas.width  = FW * 3  // 3 frames
@@ -133,7 +135,12 @@ export function generateSpriteSheet(colors: CharColors): string {
     drawSide(ctx, f * FW, FH * 2,  colors, f)
   }
 
-  return canvas.toDataURL('image/png')
+  return canvas
+}
+
+/** @deprecated use generateSpriteCanvas */
+export function generateSpriteSheet(colors: CharColors): string {
+  return generateSpriteCanvas(colors).toDataURL('image/png')
 }
 
 // Predefined NPC color palettes

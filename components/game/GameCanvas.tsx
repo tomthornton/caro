@@ -3,7 +3,7 @@
 import { useEffect, useRef } from 'react'
 import type { Character } from '@/lib/supabase'
 import type { NpcSoul } from '@/lib/npcs'
-import { generateSpriteSheet, NPC_PALETTES } from '@/lib/char-sprites'
+import { generateSpriteCanvas, NPC_PALETTES } from '@/lib/char-sprites'
 
 export type BuildingEntry = {
   id: string; name: string; npcId?: string
@@ -159,29 +159,16 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
           const textRes  = Math.ceil(window.devicePixelRatio * 2)
           const isMobile = window.innerWidth < 768
 
-          // ── Generate sprite sheets via Canvas ──────────────────────
-          const loadSheet = (key: string, dataURL: string) => {
-            const img = new Image()
-            img.onload = () => {
-              if (!this.textures.exists(key)) this.textures.addImage(key, img)
-            }
-            img.src = dataURL
-          }
-
-          // Synchronous texture creation using Phaser's built-in texture system
-          const makeSheet = (key: string, palette: any) => {
-            const dataURL = generateSpriteSheet(palette)
-            const image = new Image()
-            image.src = dataURL
-            // Use Phaser's texture loading from existing image
-            this.textures.addBase64(key, dataURL)
-          }
-
-          Object.entries(NPC_PALETTES).forEach(([key, pal]) => makeSheet(key, pal))
-          makeSheet('player', NPC_PALETTES.player)
-
-          // Wait for textures then set up the scene
-          this.textures.once('onload', () => {})
+          // ── Sprite sheets — synchronous via addSpriteSheet(canvas) ─
+          const FW = 16, FH = 20
+          const allKeys = [...npcs.map(n => n.id), 'player']
+          allKeys.forEach(key => {
+            if (this.textures.exists(key)) return
+            const palette = NPC_PALETTES[key] ?? NPC_PALETTES.player
+            const canvas = generateSpriteCanvas(palette)
+            // addSpriteSheet accepts HTMLCanvasElement directly — fully synchronous
+            this.textures.addSpriteSheet(key, canvas as any, { frameWidth: FW, frameHeight: FH })
+          })
 
           // ── Tilemap + collision ─────────────────────────────────────
           const map = this.make.tilemap({ data: MAP_DATA, tileWidth: TILE, tileHeight: TILE })
@@ -192,28 +179,18 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
 
           // ── Animations ─────────────────────────────────────────────
           const setupAnims = (key: string) => {
-            // down
-            this.anims.create({ key: `${key}_idle_down`, frames: this.anims.generateFrameNumbers(key, { start: 0, end: 0 }), frameRate: 1, repeat: -1 })
-            this.anims.create({ key: `${key}_walk_down`, frames: this.anims.generateFrameNumbers(key, { frames: [0, 1, 0, 2] }), frameRate: 8, repeat: -1 })
-            // up
-            this.anims.create({ key: `${key}_idle_up`, frames: this.anims.generateFrameNumbers(key, { start: 3, end: 3 }), frameRate: 1, repeat: -1 })
-            this.anims.create({ key: `${key}_walk_up`, frames: this.anims.generateFrameNumbers(key, { frames: [3, 4, 3, 5] }), frameRate: 8, repeat: -1 })
-            // side (flipX for left)
-            this.anims.create({ key: `${key}_idle_side`, frames: this.anims.generateFrameNumbers(key, { start: 6, end: 6 }), frameRate: 1, repeat: -1 })
-            this.anims.create({ key: `${key}_walk_side`, frames: this.anims.generateFrameNumbers(key, { frames: [6, 7, 6, 8] }), frameRate: 8, repeat: -1 })
+            if (!this.textures.exists(key)) return
+            // down  (rows 0: frames 0,1,2)
+            this.anims.create({ key: `${key}_idle_down`, frames: this.anims.generateFrameNumbers(key, { start: 0, end: 0 }), frameRate: 1,  repeat: -1 })
+            this.anims.create({ key: `${key}_walk_down`, frames: this.anims.generateFrameNumbers(key, { frames: [0,1,0,2] }),               frameRate: 8, repeat: -1 })
+            // up    (row 1: frames 3,4,5)
+            this.anims.create({ key: `${key}_idle_up`,   frames: this.anims.generateFrameNumbers(key, { start: 3, end: 3 }), frameRate: 1,  repeat: -1 })
+            this.anims.create({ key: `${key}_walk_up`,   frames: this.anims.generateFrameNumbers(key, { frames: [3,4,3,5] }),               frameRate: 8, repeat: -1 })
+            // side  (row 2: frames 6,7,8)  — flipX for left
+            this.anims.create({ key: `${key}_idle_side`, frames: this.anims.generateFrameNumbers(key, { start: 6, end: 6 }), frameRate: 1,  repeat: -1 })
+            this.anims.create({ key: `${key}_walk_side`, frames: this.anims.generateFrameNumbers(key, { frames: [6,7,6,8] }),               frameRate: 8, repeat: -1 })
           }
-
-          // Textures load asynchronously — set up anims after textures ready
-          const trySetupAnims = () => {
-            npcs.forEach(npc => {
-              if (this.textures.exists(npc.id)) setupAnims(npc.id)
-            })
-            if (this.textures.exists('player')) setupAnims('player')
-          }
-
-          // Try immediately, and also on next frame
-          this.time.delayedCall(100, trySetupAnims)
-          this.time.delayedCall(500, trySetupAnims)
+          allKeys.forEach(setupAnims)
 
           // ── NPCs ────────────────────────────────────────────────────
           npcs.forEach(npc => {
@@ -293,20 +270,32 @@ export default function GameCanvas({ character, npcs, onNpcInteract, onEnterBuil
           this.hint.add([hBg, this.hintText])
 
           // ── Input ──────────────────────────────────────────────────
-          this.input.keyboard!.disableGlobalCapture()
           this.cursors = this.input.keyboard!.createCursorKeys()
           this.wasd = this.input.keyboard!.addKeys({up:'W',down:'S',left:'A',right:'D'})
+          this.input.keyboard!.enabled = true
 
-          this.input.keyboard!.on('keydown-E', () => {
+          this.input.keyboard!.on('keydown-E', (e: KeyboardEvent) => {
+            e.stopPropagation()
             if (!this.input.keyboard!.enabled) return
             if (this.nearbyNpc) { const n=npcs.find(x=>x.id===this.nearbyNpc); if(n) { onNpcInteract(n); return } }
             if (this.nearbyDoor) onEnterBuilding(this.nearbyDoor)
           })
 
-          const onFI = (e:FocusEvent) => { const t=(e.target as HTMLElement)?.tagName; if(t==='INPUT'||t==='TEXTAREA') this.input.keyboard!.enabled=false }
-          const onFO = (e:FocusEvent) => { const t=(e.target as HTMLElement)?.tagName; if(t==='INPUT'||t==='TEXTAREA') this.input.keyboard!.enabled=true  }
-          document.addEventListener('focusin',onFI); document.addEventListener('focusout',onFO)
-          this.events.once('destroy',()=>{ document.removeEventListener('focusin',onFI); document.removeEventListener('focusout',onFO) })
+          // Disable movement keys while typing in a React input
+          const onFI = (e:FocusEvent) => {
+            const t = (e.target as HTMLElement)?.tagName
+            if (t==='INPUT' || t==='TEXTAREA') this.input.keyboard!.enabled = false
+          }
+          const onFO = (e:FocusEvent) => {
+            const t = (e.target as HTMLElement)?.tagName
+            if (t==='INPUT' || t==='TEXTAREA') this.input.keyboard!.enabled = true
+          }
+          document.addEventListener('focusin',  onFI)
+          document.addEventListener('focusout', onFO)
+          this.events.once('destroy', () => {
+            document.removeEventListener('focusin',  onFI)
+            document.removeEventListener('focusout', onFO)
+          })
 
           // ── Mobile joystick ────────────────────────────────────────
           if (isMobile) {
